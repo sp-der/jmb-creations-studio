@@ -1,0 +1,17 @@
+NEW FILES
+src/components/presentation/ChatRoom.tsx
+src/components/presentation/OrderStatusTimeline.tsx
+src/data/presentation.ts
+src/lib/presentation-sync.ts
+src/routes/account.tsx
+src/routes/admin.tsx
+src/routes/cart.tsx
+src/routes/contact.tsx
+src/routes/custom-orders.tsx
+src/routes/legal.$policy.tsx
+src/routes/orders.$orderId.tsx
+src/routes/product.$slug.tsx
+
+REWRITTEN FILES
+src/components/store/Navbar.tsx
+src/components/store/Footer.tsx
