@@ -14,7 +14,6 @@ import {
 import { useState } from "react";
 import { toast } from "sonner";
 
-import logo from "@/assets/jmb-logo.png.asset.json";
 import { FloatingDecor, Sparkle } from "@/components/brand/Decor";
 import { ProductPlaceholder } from "@/components/brand/ProductPlaceholder";
 import { ProductCard } from "@/components/store/ProductCard";
@@ -121,12 +120,12 @@ function Home() {
           <div className="relative mx-auto w-full max-w-md">
             <div className="relative rounded-[2.5rem] bg-card p-4 shadow-lift">
               <img
-                src={logo.url}
-                alt="JMB 2 Creations logo"
-                className="w-full rounded-[2rem]"
-                width={640}
-                height={640}
-              />
+  src="/logo.png"
+  alt="JMB 2 Creations logo"
+  className="aspect-square w-full rounded-[2rem] object-cover"
+  width={640}
+  height={640}
+/>
             </div>
             <div className="absolute -left-6 -top-6 hidden w-28 rotate-[-8deg] animate-float-slow sm:block">
               <ProductPlaceholder compact seed={1} className="aspect-square w-full shadow-soft" />

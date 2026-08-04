@@ -2,7 +2,6 @@ import { Link } from "@tanstack/react-router";
 import { Menu, Search, ShoppingBag, UserRound, X } from "lucide-react";
 import { useState } from "react";
 
-import navLogo from "@/assets/jmb-nav-logo.png.asset.json";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
@@ -33,10 +32,18 @@ export function Navbar() {
 
   return (
     <header className="sticky top-0 z-40 border-b border-border/70 bg-background/85 backdrop-blur-md">
-      <div className="mx-auto flex max-w-7xl items-center gap-3 px-4 py-3 sm:px-6">
-        <Link to="/" className="flex shrink-0 items-center gap-2" aria-label="JMB 2 Creations home">
-          <img src={navLogo.url} alt="JMB 2 Creations logo" className="h-10 w-auto sm:h-12" />
-        </Link>
+      <div className="mx-auto flex max-w-7xl items-center gap-3 px-4 py-1 sm:px-6">
+        <Link
+  to="/"
+  className="flex h-16 w-28 shrink-0 items-center overflow-hidden sm:h-[72px] sm:w-32"
+  aria-label="JMB 2 Creations home"
+>
+  <img
+    src="/logoheader.png"
+    alt="JMB 2 Creations logo"
+    className="h-full w-full scale-[1.35] object-contain"
+  />
+</Link>
 
         <nav aria-label="Main" className="ml-auto hidden items-center gap-1 lg:flex">
           {NAV_LINKS.map((link) => (
