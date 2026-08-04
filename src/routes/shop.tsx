@@ -19,12 +19,12 @@ import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/s
 import { Slider } from "@/components/ui/slider";
 import { CATEGORIES, PRODUCTS } from "@/data/catalog";
 
-type Search = { category?: string; q?: string };
+type Search = { category?: string | undefined; q?: string | undefined };
 
 export const Route = createFileRoute("/shop")({
   validateSearch: (search: Record<string, unknown>): Search => ({
-    category: typeof search.category === "string" ? search.category : undefined,
-    q: typeof search.q === "string" ? search.q : undefined,
+    category: typeof search["category"] === "string" ? (search["category"] as string) : undefined,
+    q: typeof search["q"] === "string" ? (search["q"] as string) : undefined,
   }),
   head: () => ({
     meta: [
