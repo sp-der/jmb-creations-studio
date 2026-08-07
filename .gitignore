@@ -30,3 +30,8 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Local secrets and Supabase temp files
+.env.local
+supabase/.env.production
+supabase/.temp/
