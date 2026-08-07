@@ -26,7 +26,8 @@ function Home() {
         <FloatingDecor />
         <div className="relative mx-auto grid max-w-7xl items-center gap-10 px-4 py-16 sm:px-6 md:py-24 lg:grid-cols-2">
           <div className="animate-rise">
-            <span className="inline-flex items-center gap-2 rounded-full bg-card px-4 py-1.5 text-xs font-bold uppercase tracking-[0.16em] text-primary shadow-soft"><Sparkle className="size-3.5" /> Family-run maker studio</span>
+            <img src="/logo.png" alt="JMB 2 Creations" className="mx-auto mb-5 w-36 object-contain drop-shadow-[0_10px_18px_rgba(88,90,170,0.16)] sm:hidden" />
+            <span className="mx-auto flex w-fit items-center gap-2 rounded-full bg-card px-4 py-1.5 text-xs font-bold uppercase tracking-[0.16em] text-primary shadow-soft sm:mx-0 sm:inline-flex"><Sparkle className="size-3.5" /> Family-run maker studio</span>
             <h1 className="mt-5 text-4xl font-bold leading-[1.05] sm:text-5xl lg:text-6xl">Big Imagination, Printed Into Something Special</h1>
             <p className="mt-5 max-w-xl text-base text-muted-foreground sm:text-lg">Shop JMB 2 Creations product collections, browse the designs currently available, or request something made around your own idea.</p>
             <div className="mt-8 flex flex-wrap gap-3">
@@ -37,7 +38,7 @@ function Home() {
               {[ ["Custom", "made to order"], ["Shipping", "available"], ["Local", "pickup available"] ].map(([value, label]) => <div key={label} className="rounded-2xl bg-card/80 p-3 shadow-soft"><dt className="font-display text-lg font-bold text-primary">{value}</dt><dd className="text-xs text-muted-foreground">{label}</dd></div>)}
             </dl>
           </div>
-          <div className="relative mx-auto w-full max-w-md">
+          <div className="relative mx-auto hidden w-full max-w-md sm:block">
             <div className="relative rounded-[2.5rem] bg-card p-4 shadow-lift"><img src="/logo.png" alt="JMB 2 Creations logo" className="w-full rounded-[2rem] object-contain" width={640} height={640} onError={(event) => { event.currentTarget.src = "/logoheader.png"; }} /></div>
             {HERO_FLOAT_IMAGES[0] && <img src={HERO_FLOAT_IMAGES[0]} alt="JMB creation" className="absolute -left-16 -top-14 hidden w-40 rotate-[-8deg] animate-float-slow object-contain drop-shadow-[0_18px_22px_rgba(88,90,170,0.22)] sm:block lg:w-44" />}
             {HERO_FLOAT_IMAGES[1] && <img src={HERO_FLOAT_IMAGES[1]} alt="JMB creation" className="absolute -bottom-12 -left-12 hidden w-36 rotate-6 animate-float-mid object-contain drop-shadow-[0_18px_22px_rgba(88,90,170,0.22)] sm:block lg:w-40" />}

@@ -10,6 +10,10 @@ export type LiveCatalogItem = {
   made_to_order: boolean;
   active: boolean;
   sort_order: number;
+  weight_oz: number | null;
+  length_in: number | null;
+  width_in: number | null;
+  height_in: number | null;
   created_at?: string;
 };
 
@@ -17,7 +21,9 @@ export type LiveCatalogItemInput = Omit<LiveCatalogItem, "id" | "created_at">;
 
 const SUPABASE_URL = (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.replace(/\/$/, "");
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
-const SESSION_KEY = "jmb-admin-supabase-session";
+const LOCAL_SESSION_KEY = "jmb-admin-supabase-session";
+const TEMP_SESSION_KEY = "jmb-admin-supabase-session-temporary";
+const ADMIN_REMEMBER_KEY = "jmb-admin-remember";
 const BUCKET = "jmb-catalog";
 
 export function isSupabaseCatalogConfigured() {
@@ -25,10 +31,9 @@ export function isSupabaseCatalogConfigured() {
 }
 
 function publicHeaders() {
-  if (!SUPABASE_ANON_KEY) throw new Error("Supabase anon key is not configured.");
+  if (!SUPABASE_ANON_KEY) throw new Error("Supabase publishable/anon key is not configured.");
   return {
     apikey: SUPABASE_ANON_KEY,
-    Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
     "Content-Type": "application/json",
   };
 }
@@ -40,22 +45,42 @@ export type AdminSession = {
   user?: { id?: string; email?: string };
 };
 
+export function isAdminRemembered() {
+  if (typeof window === "undefined") return true;
+  return localStorage.getItem(ADMIN_REMEMBER_KEY) === "true";
+}
+
 export function getAdminSession(): AdminSession | null {
   if (typeof window === "undefined") return null;
   try {
-    const raw = sessionStorage.getItem(SESSION_KEY);
+    const raw = localStorage.getItem(LOCAL_SESSION_KEY) ?? sessionStorage.getItem(TEMP_SESSION_KEY);
     return raw ? JSON.parse(raw) : null;
   } catch {
     return null;
   }
 }
 
-export function clearAdminSession() {
-  if (typeof window !== "undefined") sessionStorage.removeItem(SESSION_KEY);
+function saveAdminSession(session: AdminSession, remember = true) {
+  if (typeof window === "undefined") return;
+  if (remember) {
+    localStorage.setItem(LOCAL_SESSION_KEY, JSON.stringify(session));
+    localStorage.setItem(ADMIN_REMEMBER_KEY, "true");
+    sessionStorage.removeItem(TEMP_SESSION_KEY);
+  } else {
+    sessionStorage.setItem(TEMP_SESSION_KEY, JSON.stringify(session));
+    localStorage.removeItem(LOCAL_SESSION_KEY);
+    localStorage.setItem(ADMIN_REMEMBER_KEY, "false");
+  }
 }
 
-function adminHeaders() {
-  const session = getAdminSession();
+export function clearAdminSession() {
+  if (typeof window === "undefined") return;
+  localStorage.removeItem(LOCAL_SESSION_KEY);
+  sessionStorage.removeItem(TEMP_SESSION_KEY);
+  localStorage.removeItem(ADMIN_REMEMBER_KEY);
+}
+
+function adminHeaders(session = getAdminSession()) {
   if (!SUPABASE_ANON_KEY || !session?.access_token) throw new Error("Admin sign-in is required.");
   return {
     apikey: SUPABASE_ANON_KEY,
@@ -74,7 +99,47 @@ async function parseError(response: Response) {
   }
 }
 
-export async function adminSignIn(email: string, password: string) {
+async function refreshAdminSession(session: AdminSession) {
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY || !session.refresh_token) return session;
+  const response = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, {
+    method: "POST",
+    headers: { apikey: SUPABASE_ANON_KEY, "Content-Type": "application/json" },
+    body: JSON.stringify({ refresh_token: session.refresh_token }),
+  });
+  if (!response.ok) {
+    clearAdminSession();
+    throw new Error(await parseError(response));
+  }
+  const next = (await response.json()) as AdminSession;
+  saveAdminSession(next, isAdminRemembered());
+  return next;
+}
+
+async function verifyAdmin(session: AdminSession) {
+  if (!SUPABASE_URL || !session.user?.id) return false;
+  const response = await fetch(`${SUPABASE_URL}/rest/v1/jmb_admins?user_id=eq.${encodeURIComponent(session.user.id)}&select=user_id&limit=1`, {
+    headers: adminHeaders(session),
+  });
+  if (!response.ok) return false;
+  const rows = (await response.json()) as Array<{ user_id: string }>;
+  return rows.length === 1;
+}
+
+export async function validateAdminSession() {
+  let session = getAdminSession();
+  if (!session) return null;
+  const now = Math.floor(Date.now() / 1000);
+  if (session.expires_at && session.expires_at <= now + 60) {
+    try { session = await refreshAdminSession(session); } catch { return null; }
+  }
+  if (!(await verifyAdmin(session))) {
+    clearAdminSession();
+    return null;
+  }
+  return session;
+}
+
+export async function adminSignIn(email: string, password: string, remember = true) {
   if (!SUPABASE_URL || !SUPABASE_ANON_KEY) throw new Error("Supabase is not configured.");
   const response = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
     method: "POST",
@@ -83,7 +148,8 @@ export async function adminSignIn(email: string, password: string) {
   });
   if (!response.ok) throw new Error(await parseError(response));
   const session = (await response.json()) as AdminSession;
-  sessionStorage.setItem(SESSION_KEY, JSON.stringify(session));
+  if (!(await verifyAdmin(session))) throw new Error("This account is not authorized for the JMB admin dashboard.");
+  saveAdminSession(session, remember);
   return session;
 }
 
@@ -173,6 +239,14 @@ export async function uploadCatalogImage(file: File, familySlug: string, itemNam
   });
   if (!response.ok) throw new Error(await parseError(response));
   return `${SUPABASE_URL}/storage/v1/object/public/${BUCKET}/${objectPath}`;
+}
+
+export function getSupabaseConfig() {
+  return { url: SUPABASE_URL, anonKey: SUPABASE_ANON_KEY };
+}
+
+export function getAdminAuthHeaders() {
+  return adminHeaders();
 }
 
 export function formatCatalogPrice(price: number) {

@@ -15,6 +15,7 @@ import { Route as AccountRouteImport } from './routes/account'
 import { Route as AdminRouteImport } from './routes/admin'
 import { Route as CartRouteImport } from './routes/cart'
 import { Route as CategoriesRouteImport } from './routes/categories'
+import { Route as CheckoutRouteImport } from './routes/checkout'
 import { Route as ContactRouteImport } from './routes/contact'
 import { Route as CustomOrdersRouteImport } from './routes/custom-orders'
 import { Route as FaqRouteImport } from './routes/faq'
@@ -22,7 +23,10 @@ import { Route as ShopRouteImport } from './routes/shop'
 import { Route as CategorySlugRouteImport } from './routes/category.$slug'
 import { Route as LegalPolicyRouteImport } from './routes/legal.$policy'
 import { Route as OrdersOrderIdRouteImport } from './routes/orders.$orderId'
+import { Route as PaymentOrderIdRouteImport } from './routes/payment.$orderId'
 import { Route as ProductSlugRouteImport } from './routes/product.$slug'
+import { Route as GuestCustomRequestIdRouteImport } from './routes/guest.custom.$requestId'
+import { Route as GuestOrderOrderIdRouteImport } from './routes/guest.order.$orderId'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -52,6 +56,11 @@ const CartRoute = CartRouteImport.update({
 const CategoriesRoute = CategoriesRouteImport.update({
   id: '/categories',
   path: '/categories',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CheckoutRoute = CheckoutRouteImport.update({
+  id: '/checkout',
+  path: '/checkout',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ContactRoute = ContactRouteImport.update({
@@ -89,9 +98,24 @@ const OrdersOrderIdRoute = OrdersOrderIdRouteImport.update({
   path: '/orders/$orderId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const PaymentOrderIdRoute = PaymentOrderIdRouteImport.update({
+  id: '/payment/$orderId',
+  path: '/payment/$orderId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ProductSlugRoute = ProductSlugRouteImport.update({
   id: '/product/$slug',
   path: '/product/$slug',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const GuestCustomRequestIdRoute = GuestCustomRequestIdRouteImport.update({
+  id: '/guest/custom/$requestId',
+  path: '/guest/custom/$requestId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const GuestOrderOrderIdRoute = GuestOrderOrderIdRouteImport.update({
+  id: '/guest/order/$orderId',
+  path: '/guest/order/$orderId',
   getParentRoute: () => rootRouteImport,
 } as any)
 
@@ -102,6 +126,7 @@ export interface FileRoutesByFullPath {
   '/admin': typeof AdminRoute
   '/cart': typeof CartRoute
   '/categories': typeof CategoriesRoute
+  '/checkout': typeof CheckoutRoute
   '/contact': typeof ContactRoute
   '/custom-orders': typeof CustomOrdersRoute
   '/faq': typeof FaqRoute
@@ -109,7 +134,10 @@ export interface FileRoutesByFullPath {
   '/category/$slug': typeof CategorySlugRoute
   '/legal/$policy': typeof LegalPolicyRoute
   '/orders/$orderId': typeof OrdersOrderIdRoute
+  '/payment/$orderId': typeof PaymentOrderIdRoute
   '/product/$slug': typeof ProductSlugRoute
+  '/guest/custom/$requestId': typeof GuestCustomRequestIdRoute
+  '/guest/order/$orderId': typeof GuestOrderOrderIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -118,6 +146,7 @@ export interface FileRoutesByTo {
   '/admin': typeof AdminRoute
   '/cart': typeof CartRoute
   '/categories': typeof CategoriesRoute
+  '/checkout': typeof CheckoutRoute
   '/contact': typeof ContactRoute
   '/custom-orders': typeof CustomOrdersRoute
   '/faq': typeof FaqRoute
@@ -125,7 +154,10 @@ export interface FileRoutesByTo {
   '/category/$slug': typeof CategorySlugRoute
   '/legal/$policy': typeof LegalPolicyRoute
   '/orders/$orderId': typeof OrdersOrderIdRoute
+  '/payment/$orderId': typeof PaymentOrderIdRoute
   '/product/$slug': typeof ProductSlugRoute
+  '/guest/custom/$requestId': typeof GuestCustomRequestIdRoute
+  '/guest/order/$orderId': typeof GuestOrderOrderIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -135,6 +167,7 @@ export interface FileRoutesById {
   '/admin': typeof AdminRoute
   '/cart': typeof CartRoute
   '/categories': typeof CategoriesRoute
+  '/checkout': typeof CheckoutRoute
   '/contact': typeof ContactRoute
   '/custom-orders': typeof CustomOrdersRoute
   '/faq': typeof FaqRoute
@@ -142,7 +175,10 @@ export interface FileRoutesById {
   '/category/$slug': typeof CategorySlugRoute
   '/legal/$policy': typeof LegalPolicyRoute
   '/orders/$orderId': typeof OrdersOrderIdRoute
+  '/payment/$orderId': typeof PaymentOrderIdRoute
   '/product/$slug': typeof ProductSlugRoute
+  '/guest/custom/$requestId': typeof GuestCustomRequestIdRoute
+  '/guest/order/$orderId': typeof GuestOrderOrderIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -153,6 +189,7 @@ export interface FileRouteTypes {
     | '/admin'
     | '/cart'
     | '/categories'
+    | '/checkout'
     | '/contact'
     | '/custom-orders'
     | '/faq'
@@ -160,7 +197,10 @@ export interface FileRouteTypes {
     | '/category/$slug'
     | '/legal/$policy'
     | '/orders/$orderId'
+    | '/payment/$orderId'
     | '/product/$slug'
+    | '/guest/custom/$requestId'
+    | '/guest/order/$orderId'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -169,6 +209,7 @@ export interface FileRouteTypes {
     | '/admin'
     | '/cart'
     | '/categories'
+    | '/checkout'
     | '/contact'
     | '/custom-orders'
     | '/faq'
@@ -176,7 +217,10 @@ export interface FileRouteTypes {
     | '/category/$slug'
     | '/legal/$policy'
     | '/orders/$orderId'
+    | '/payment/$orderId'
     | '/product/$slug'
+    | '/guest/custom/$requestId'
+    | '/guest/order/$orderId'
   id:
     | '__root__'
     | '/'
@@ -185,6 +229,7 @@ export interface FileRouteTypes {
     | '/admin'
     | '/cart'
     | '/categories'
+    | '/checkout'
     | '/contact'
     | '/custom-orders'
     | '/faq'
@@ -192,7 +237,10 @@ export interface FileRouteTypes {
     | '/category/$slug'
     | '/legal/$policy'
     | '/orders/$orderId'
+    | '/payment/$orderId'
     | '/product/$slug'
+    | '/guest/custom/$requestId'
+    | '/guest/order/$orderId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -202,6 +250,7 @@ export interface RootRouteChildren {
   AdminRoute: typeof AdminRoute
   CartRoute: typeof CartRoute
   CategoriesRoute: typeof CategoriesRoute
+  CheckoutRoute: typeof CheckoutRoute
   ContactRoute: typeof ContactRoute
   CustomOrdersRoute: typeof CustomOrdersRoute
   FaqRoute: typeof FaqRoute
@@ -209,7 +258,10 @@ export interface RootRouteChildren {
   CategorySlugRoute: typeof CategorySlugRoute
   LegalPolicyRoute: typeof LegalPolicyRoute
   OrdersOrderIdRoute: typeof OrdersOrderIdRoute
+  PaymentOrderIdRoute: typeof PaymentOrderIdRoute
   ProductSlugRoute: typeof ProductSlugRoute
+  GuestCustomRequestIdRoute: typeof GuestCustomRequestIdRoute
+  GuestOrderOrderIdRoute: typeof GuestOrderOrderIdRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -254,6 +306,13 @@ declare module '@tanstack/react-router' {
       path: '/categories'
       fullPath: '/categories'
       preLoaderRoute: typeof CategoriesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/checkout': {
+      id: '/checkout'
+      path: '/checkout'
+      fullPath: '/checkout'
+      preLoaderRoute: typeof CheckoutRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/contact': {
@@ -305,11 +364,32 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OrdersOrderIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/payment/$orderId': {
+      id: '/payment/$orderId'
+      path: '/payment/$orderId'
+      fullPath: '/payment/$orderId'
+      preLoaderRoute: typeof PaymentOrderIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/product/$slug': {
       id: '/product/$slug'
       path: '/product/$slug'
       fullPath: '/product/$slug'
       preLoaderRoute: typeof ProductSlugRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/guest/custom/$requestId': {
+      id: '/guest/custom/$requestId'
+      path: '/guest/custom/$requestId'
+      fullPath: '/guest/custom/$requestId'
+      preLoaderRoute: typeof GuestCustomRequestIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/guest/order/$orderId': {
+      id: '/guest/order/$orderId'
+      path: '/guest/order/$orderId'
+      fullPath: '/guest/order/$orderId'
+      preLoaderRoute: typeof GuestOrderOrderIdRouteImport
       parentRoute: typeof rootRouteImport
     }
   }
@@ -322,6 +402,7 @@ const rootRouteChildren: RootRouteChildren = {
   AdminRoute: AdminRoute,
   CartRoute: CartRoute,
   CategoriesRoute: CategoriesRoute,
+  CheckoutRoute: CheckoutRoute,
   ContactRoute: ContactRoute,
   CustomOrdersRoute: CustomOrdersRoute,
   FaqRoute: FaqRoute,
@@ -329,7 +410,10 @@ const rootRouteChildren: RootRouteChildren = {
   CategorySlugRoute: CategorySlugRoute,
   LegalPolicyRoute: LegalPolicyRoute,
   OrdersOrderIdRoute: OrdersOrderIdRoute,
+  PaymentOrderIdRoute: PaymentOrderIdRoute,
   ProductSlugRoute: ProductSlugRoute,
+  GuestCustomRequestIdRoute: GuestCustomRequestIdRoute,
+  GuestOrderOrderIdRoute: GuestOrderOrderIdRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
