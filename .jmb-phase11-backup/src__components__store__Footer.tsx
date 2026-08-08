@@ -110,6 +110,21 @@ export function Footer() {
               Local pickup is available. Exact pickup details are shared when an order is ready.
             </p>
           </div>
+
+          <div className="mt-5 rounded-2xl border border-primary/20 bg-secondary/40 p-4">
+            <p className="text-xs font-bold uppercase tracking-wide text-primary">Presentation links</p>
+            <div className="mt-3 space-y-2 text-sm">
+              <Link to="/account" className="flex items-center gap-2 font-semibold hover:text-primary">
+                <UserRound className="size-4" aria-hidden /> Customer Portal
+              </Link>
+              <Link to="/custom-orders" className="flex items-center gap-2 font-semibold hover:text-primary">
+                <MessageCircleMore className="size-4" aria-hidden /> Custom Chat
+              </Link>
+              <Link to="/admin" className="flex items-center gap-2 font-semibold hover:text-primary">
+                <LayoutDashboard className="size-4" aria-hidden /> Admin Dashboard
+              </Link>
+            </div>
+          </div>
         </div>
       </div>
 

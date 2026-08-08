@@ -83,33 +83,6 @@ function ProductDetailPage() {
   const selectedReady = readyItems.find((item) => item.id === selectedReadyId) ?? null;
   const selectedGroup = isKoozie ? koozieGroups.find((group) => group.name === selectedKoozieDesign) ?? null : null;
   const displayDesignName = (item: (typeof designs)[number] | undefined) => item ? (designLabels[item.id] ?? item.name) : product.name;
-  const normalizeCatalogLabel = (value: string | null | undefined) =>
-    (value ?? "")
-      .toLowerCase()
-      .replace(/&/g, "and")
-      .replace(/[^a-z0-9]+/g, " " )
-      .trim();
-  const findLiveGroupForDesign = (item: (typeof designs)[number]) => {
-    const imageMatch = liveGroups.find((group) => group.image && group.image === item.image);
-    if (imageMatch) return imageMatch;
-
-    const designNames = [displayDesignName(item), item.name]
-      .map(normalizeCatalogLabel)
-      .filter(Boolean);
-
-    return liveGroups.find((group) => {
-      const liveNames = [group.name, group.team]
-        .map(normalizeCatalogLabel)
-        .filter(Boolean);
-      return designNames.some((designName) =>
-        liveNames.some((liveName) =>
-          liveName === designName ||
-          (liveName.length > 4 && designName.length > 4 &&
-            (liveName.includes(designName) || designName.includes(liveName))),
-        ),
-      );
-    }) ?? null;
-  };
   const currentImage = selectedReady?.image_url ?? selectedGroup?.image ?? selected?.image ?? product.mainImage;
   const currentAlt = selectedReady?.name ?? selectedGroup?.name ?? displayDesignName(selected);
 
@@ -129,34 +102,6 @@ function ProductDetailPage() {
     setSelectedKoozieDesign(group.name); setSelectedReadyId(null); setQuantity(1);
     const staticIndex = designs.findIndex((designItem) => designItem.image === group.image);
     if (staticIndex >= 0) setSelectedIndex(staticIndex);
-  };
-
-  const chooseStaticDesign = (item: (typeof designs)[number], index: number) => {
-    setSelectedIndex(index);
-    setQuantity(1);
-    const linkedGroup = findLiveGroupForDesign(item);
-
-    if (!linkedGroup) {
-      setSelectedReadyId(null);
-      setSelectedKoozieDesign(null);
-      return;
-    }
-
-    if (isKoozie) {
-      setSelectedKoozieDesign(linkedGroup.name);
-      setSelectedReadyId(null);
-    } else {
-      setSelectedKoozieDesign(null);
-      setSelectedReadyId(linkedGroup.variants[0]?.id ?? null);
-    }
-  };
-
-  const isStaticDesignActive = (item: (typeof designs)[number], index: number) => {
-    const linkedGroup = findLiveGroupForDesign(item);
-    if (!linkedGroup) return !selectedReady && !selectedGroup && selectedIndex === index;
-    return isKoozie
-      ? selectedKoozieDesign === linkedGroup.name
-      : selectedReady?.name === linkedGroup.name;
   };
 
   const addReadyToCart = () => {
@@ -192,7 +137,7 @@ function ProductDetailPage() {
         <section>
           <div className="relative overflow-hidden rounded-[2rem] border border-border bg-card p-4 shadow-lift"><img src={currentImage} alt={currentAlt} className="aspect-[4/5] w-full rounded-[1.5rem] object-cover" />{designs.length > 1 && !selectedReady && !selectedGroup && <><Button type="button" variant="soft" size="icon" className="absolute left-7 top-1/2 -translate-y-1/2" onClick={() => move(-1)}><ChevronLeft /></Button><Button type="button" variant="soft" size="icon" className="absolute right-7 top-1/2 -translate-y-1/2" onClick={() => move(1)}><ChevronRight /></Button></>}</div>
           <div className="mt-4 grid grid-cols-4 gap-3 sm:grid-cols-6">
-            {designs.map((item, index) => <button key={item.id} type="button" onClick={() => chooseStaticDesign(item, index)} className={`overflow-hidden rounded-xl border p-1 ${isStaticDesignActive(item, index) ? "border-primary ring-2 ring-primary/15" : "border-border"}`}><img src={item.image} alt={displayDesignName(item)} className="aspect-[4/5] w-full rounded-lg object-cover" loading="lazy" /></button>)}
+            {designs.map((item, index) => <button key={item.id} type="button" onClick={() => { setSelectedReadyId(null); setSelectedKoozieDesign(null); setSelectedIndex(index); }} className={`overflow-hidden rounded-xl border p-1 ${!selectedReady && !selectedGroup && selectedIndex === index ? "border-primary ring-2 ring-primary/15" : "border-border"}`}><img src={item.image} alt={displayDesignName(item)} className="aspect-[4/5] w-full rounded-lg object-cover" loading="lazy" /></button>)}
             {extraLiveGroups.map((group) => {
               const active = isKoozie ? selectedKoozieDesign === group.name : selectedReady?.name === group.name;
               return <button key={`live-${group.name}`} type="button" onClick={() => { setQuantity(1); if (isKoozie) { setSelectedKoozieDesign(group.name); setSelectedReadyId(null); } else { setSelectedKoozieDesign(null); setSelectedReadyId(group.variants[0]?.id ?? null); } }} className={`overflow-hidden rounded-xl border p-1 ${active ? "border-primary ring-2 ring-primary/15" : "border-border"}`}><img src={group.image} alt={group.name} className="aspect-[4/5] w-full rounded-lg object-cover" loading="lazy" /></button>;
@@ -223,7 +168,7 @@ function ProductDetailPage() {
       </div>
 
       <section className="mt-16 border-t border-border pt-12"><p className="text-xs font-bold uppercase tracking-[0.18em] text-primary">Available collection</p><h2 className="mt-2 text-3xl font-bold">All {product.name} Designs</h2><div className="mt-7 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
-        {designs.map((item, index) => <button key={item.id} type="button" onClick={() => { chooseStaticDesign(item, index); window.scrollTo({ top: 0, behavior: "smooth" }); }} className="rounded-[1.5rem] border border-border bg-card p-3 text-left shadow-soft transition-transform hover:-translate-y-1"><img src={item.image} alt={displayDesignName(item)} className="aspect-[4/5] w-full rounded-[1.1rem] object-cover" loading="lazy" /><p className="px-2 pb-1 pt-3 text-sm font-bold">{displayDesignName(item)}</p></button>)}
+        {designs.map((item, index) => <button key={item.id} type="button" onClick={() => { setSelectedReadyId(null); setSelectedKoozieDesign(null); setSelectedIndex(index); window.scrollTo({ top: 0, behavior: "smooth" }); }} className="rounded-[1.5rem] border border-border bg-card p-3 text-left shadow-soft transition-transform hover:-translate-y-1"><img src={item.image} alt={displayDesignName(item)} className="aspect-[4/5] w-full rounded-[1.1rem] object-cover" loading="lazy" /><p className="px-2 pb-1 pt-3 text-sm font-bold">{displayDesignName(item)}</p></button>)}
         {extraLiveGroups.map((group) => <button key={`collection-live-${group.name}`} type="button" onClick={() => { setQuantity(1); if (isKoozie) { setSelectedKoozieDesign(group.name); setSelectedReadyId(null); } else { setSelectedKoozieDesign(null); setSelectedReadyId(group.variants[0]?.id ?? null); } window.scrollTo({ top: 0, behavior: "smooth" }); }} className="rounded-[1.5rem] border border-border bg-card p-3 text-left shadow-soft transition-transform hover:-translate-y-1"><img src={group.image} alt={group.name} className="aspect-[4/5] w-full rounded-[1.1rem] object-cover" loading="lazy" /><p className="px-2 pb-1 pt-3 text-sm font-bold">{group.name}</p></button>)}
       </div></section>
       {related.length > 0 && <section className="mt-16 border-t border-border pt-12"><h2 className="text-3xl font-bold">More Products</h2><div className="mt-7 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">{related.map((item) => <ProductCard key={item.id} product={item} />)}</div></section>}
