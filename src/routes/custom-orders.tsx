@@ -25,7 +25,7 @@ export const Route = createFileRoute("/custom-orders")({
   component: CustomOrdersPage,
 });
 
-const productOptions = ["Cup Koozies", "Soap Dispensers", "Tap Wands", "Display Shelves", "Cosplay Props", "Something Else"];
+const productOptions = ["Cup Koozies", "Soap Dispensers", "Tap Wands", "Display Shelves", "Cosplay Props", "Something Else", "Glasses Holder", "Heart Phone Stands"];
 
 function RequestFields({ productDefault, designDefault, includeGuestIdentity }: { productDefault?: string; designDefault?: string; includeGuestIdentity?: boolean }) {
   return <>

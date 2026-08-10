@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { fetchAdminRequests, requestCode, type CustomRequest } from "@/lib/custom-requests";
 import { createInvoice, invoiceCode, sendInvoiceEmail, type JmbInvoice } from "@/lib/invoices";
 
-const PRESET_TYPES = ["Cup Koozie", "Cosplay Sword", "Tap Wand", "Soap Dispenser", "Display Shelf", "Custom Item"];
+const PRESET_TYPES = ["Cup Koozie", "Cosplay Sword", "Tap Wand", "Soap Dispenser", "Display Shelf", "Custom Item", "Glasses Holder", "Heart Phone Stand"];
 type DraftLine = { id: string; line_type: string; description: string; quantity: number; unit_price: number };
 const newLine = (line_type = "Custom Item"): DraftLine => ({ id: crypto.randomUUID(), line_type, description: line_type === "Custom Item" ? "" : line_type, quantity: 1, unit_price: 0 });
 
