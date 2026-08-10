@@ -6,112 +6,150 @@ import { ProductCard } from "@/components/store/ProductCard";
 import { StoreLayout } from "@/components/store/StoreLayout";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { getProduct, relatedProducts } from "@/data/catalog";
+import { getProduct } from "@/data/catalog";
 import { formatPrice, useCart } from "@/lib/cart";
-import { fetchLiveCatalogItems, type LiveCatalogItem } from "@/lib/live-catalog";
+import { productFromFamily, useStorefrontCatalog } from "@/lib/catalog-families";
+import { fetchCatalogFamily, fetchLiveCatalogItems, type LiveCatalogFamily, type LiveCatalogItem } from "@/lib/live-catalog";
 import { useDesignLabels } from "@/lib/use-design-labels";
 
 export const Route = createFileRoute("/product/$slug")({
   validateSearch: (search: Record<string, unknown>) => ({
     design: typeof search.design === "string" ? search.design : undefined,
     live: typeof search.live === "string" ? search.live : undefined,
+    option: typeof search.option === "string" ? search.option : undefined,
   }),
   component: ProductDetailPage,
 });
 
 const KOOZIE_SIZE_ORDER = ["12oz", "16oz", "24oz"];
+const HEART_COLORS = ["Red", "Hot Pink", "Light Pink", "Black", "White"] as const;
+
+function normalize(value: string | null | undefined) {
+  return (value ?? "").toLowerCase().replace(/&/g, "and").replace(/[^a-z0-9]+/g, " ").trim();
+}
+function inferHeartColor(item: Pick<LiveCatalogItem, "team" | "name">) {
+  const value = `${item.team ?? ""} ${item.name}`.toLowerCase();
+  if (value.includes("hot pink")) return "Hot Pink";
+  if (value.includes("light pink")) return "Light Pink";
+  if (value.includes("black")) return "Black";
+  if (value.includes("white")) return "White";
+  if (value.includes("red")) return "Red";
+  if (value.includes("pink")) return "Hot Pink";
+  return item.team ?? "";
+}
 
 function ProductDetailPage() {
   const { slug } = Route.useParams();
-  const { design, live } = Route.useSearch();
-  const product = getProduct(slug);
+  const { design, live, option } = Route.useSearch();
+  const staticProduct = getProduct(slug);
+  const [liveFamily, setLiveFamily] = useState<LiveCatalogFamily | null>(null);
+  const [familyChecked, setFamilyChecked] = useState(Boolean(staticProduct));
+  const product = useMemo(() => liveFamily ? productFromFamily(liveFamily) : staticProduct, [liveFamily, staticProduct]);
+  const { products: storefrontProducts, designCounts } = useStorefrontCatalog();
   const { addItem } = useCart();
   const designLabels = useDesignLabels(product?.slug);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [readyItems, setReadyItems] = useState<LiveCatalogItem[]>([]);
   const [selectedReadyId, setSelectedReadyId] = useState<string | null>(null);
   const [selectedKoozieDesign, setSelectedKoozieDesign] = useState<string | null>(null);
+  const [selectedHeartColor, setSelectedHeartColor] = useState<(typeof HEART_COLORS)[number]>("Red");
   const [quantity, setQuantity] = useState(1);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchCatalogFamily(slug)
+      .then((family) => { if (!cancelled) setLiveFamily(family); })
+      .catch(() => { if (!cancelled) setLiveFamily(null); })
+      .finally(() => { if (!cancelled) setFamilyChecked(true); });
+    return () => { cancelled = true; };
+  }, [slug]);
 
   useEffect(() => {
     if (!product || !design) return;
     const index = product.designs.findIndex((item) => item.slug === design);
     if (index >= 0) setSelectedIndex(index);
-  }, [product, design]);
+  }, [product?.slug, design]);
 
   useEffect(() => {
     if (!product) return;
     let cancelled = false;
     fetchLiveCatalogItems(product.slug).then((items) => { if (!cancelled) setReadyItems(items); }).catch(() => { if (!cancelled) setReadyItems([]); });
     return () => { cancelled = true; };
-  }, [product]);
+  }, [product?.slug]);
+
+  const isKoozie = product?.slug === "cup-koozies";
+  const isHeartStand = product?.slug === "heart-phone-stands";
 
   const liveGroups = useMemo(() => {
     const groups = new Map<string, LiveCatalogItem[]>();
-    for (const item of readyItems) groups.set(item.name, [...(groups.get(item.name) ?? []), item]);
-    return [...groups.entries()].map(([name, variants]) => ({
-      name,
+    for (const item of readyItems) {
+      const color = isHeartStand ? inferHeartColor(item) : "";
+      const key = isHeartStand ? `heart::${color}` : item.name;
+      groups.set(key, [...(groups.get(key) ?? []), item]);
+    }
+    return [...groups.entries()].map(([key, variants]) => ({
+      key,
+      name: isHeartStand ? "Heart Phone Stand" : (variants[0]?.name ?? "Design"),
+      option: isHeartStand ? inferHeartColor(variants[0]) : (variants[0]?.team ?? null),
       variants: [...variants].sort((a, b) => KOOZIE_SIZE_ORDER.indexOf(a.size ?? "") - KOOZIE_SIZE_ORDER.indexOf(b.size ?? "")),
       image: variants[0]?.image_url ?? "",
       team: variants[0]?.team ?? null,
     }));
-  }, [readyItems]);
+  }, [readyItems, isHeartStand]);
 
   useEffect(() => {
-    if (!live) return;
-    const group = liveGroups.find((item) => item.name === live);
-    if (!group) return;
+    if (!live && !option) return;
+    const group = liveGroups.find((item) => {
+      if (isHeartStand && option) return normalize(item.option) === normalize(option);
+      return item.name === live || item.key === live;
+    });
+    if (isHeartStand && option) {
+      const matchedColor = HEART_COLORS.find((color) => normalize(color) === normalize(option));
+      if (matchedColor) setSelectedHeartColor(matchedColor);
+    }
+    if (!group && !isHeartStand) return;
     setQuantity(1);
-    if (product?.slug === "cup-koozies") {
-      setSelectedKoozieDesign(group.name);
+    if (isKoozie) {
+      setSelectedKoozieDesign(group.key);
       setSelectedReadyId(null);
+    } else if (isHeartStand) {
+      const matchedItem = readyItems.find((item) => option && normalize(inferHeartColor(item)) === normalize(option)) ?? readyItems[0] ?? null;
+      setSelectedKoozieDesign(null);
+      setSelectedReadyId(matchedItem?.id ?? null);
     } else {
       setSelectedKoozieDesign(null);
-      setSelectedReadyId(group.variants[0]?.id ?? null);
+      setSelectedReadyId(group?.variants[0]?.id ?? null);
     }
-  }, [live, liveGroups, product]);
+  }, [live, option, liveGroups, readyItems, isKoozie, isHeartStand]);
 
-  const related = useMemo(() => (product ? relatedProducts(product, 3) : []), [product]);
+  if (!product && !familyChecked) return <StoreLayout><div className="mx-auto max-w-xl px-4 py-24 text-center text-sm text-muted-foreground">Loading product…</div></StoreLayout>;
   if (!product) return <StoreLayout><div className="mx-auto max-w-xl px-4 py-24 text-center"><h1 className="text-3xl font-bold">Product not found</h1><Button variant="hero" className="mt-6" asChild><Link to="/shop">Back to Shop</Link></Button></div></StoreLayout>;
 
-  const isKoozie = product.slug === "cup-koozies";
   const designs = product.designs;
-  const koozieGroups = liveGroups;
   const staticImages = new Set(designs.map((item) => item.image));
-  const extraLiveGroups = liveGroups.filter((group) => group.image && !staticImages.has(group.image));
+  const extraLiveGroups = isHeartStand ? [] : liveGroups.filter((group) => group.image && !staticImages.has(group.image));
   const selected = designs[selectedIndex] ?? designs[0];
-  const selectedReady = readyItems.find((item) => item.id === selectedReadyId) ?? null;
-  const selectedGroup = isKoozie ? koozieGroups.find((group) => group.name === selectedKoozieDesign) ?? null : null;
+  const selectedReady = readyItems.find((item) => item.id === selectedReadyId) ?? (isHeartStand ? readyItems[0] ?? null : null);
+  const selectedGroup = isKoozie ? liveGroups.find((group) => group.key === selectedKoozieDesign) ?? null : null;
   const displayDesignName = (item: (typeof designs)[number] | undefined) => item ? (designLabels[item.id] ?? item.name) : product.name;
-  const normalizeCatalogLabel = (value: string | null | undefined) =>
-    (value ?? "")
-      .toLowerCase()
-      .replace(/&/g, "and")
-      .replace(/[^a-z0-9]+/g, " " )
-      .trim();
+
   const findLiveGroupForDesign = (item: (typeof designs)[number]) => {
     const imageMatch = liveGroups.find((group) => group.image && group.image === item.image);
     if (imageMatch) return imageMatch;
-
-    const designNames = [displayDesignName(item), item.name]
-      .map(normalizeCatalogLabel)
-      .filter(Boolean);
-
+    const designNames = [displayDesignName(item), item.name].map(normalize).filter(Boolean);
     return liveGroups.find((group) => {
-      const liveNames = [group.name, group.team]
-        .map(normalizeCatalogLabel)
-        .filter(Boolean);
-      return designNames.some((designName) =>
-        liveNames.some((liveName) =>
-          liveName === designName ||
-          (liveName.length > 4 && designName.length > 4 &&
-            (liveName.includes(designName) || designName.includes(liveName))),
-        ),
-      );
+      const liveNames = [group.name, group.option, group.team].map(normalize).filter(Boolean);
+      return designNames.some((designName) => liveNames.some((liveName) => liveName === designName || (liveName.length > 4 && designName.length > 4 && (liveName.includes(designName) || designName.includes(liveName)))));
     }) ?? null;
   };
-  const currentImage = selectedReady?.image_url ?? selectedGroup?.image ?? selected?.image ?? product.mainImage;
-  const currentAlt = selectedReady?.name ?? selectedGroup?.name ?? displayDesignName(selected);
+
+  const currentImage = isHeartStand
+    ? (selected?.image ?? product.mainImage)
+    : (selectedReady?.image_url ?? selectedGroup?.image ?? selected?.image ?? product.mainImage);
+  const currentAlt = isHeartStand
+    ? "Heart Phone Stands in Red, Hot Pink, Light Pink, Black, and White"
+    : (selectedReady ? selectedReady.name : selectedGroup?.name ?? displayDesignName(selected));
+  const related = storefrontProducts.filter((item) => item.slug !== product.slug).slice(0, 3);
 
   const move = (direction: number) => {
     if (!designs.length) return;
@@ -120,70 +158,63 @@ function ProductDetailPage() {
   };
 
   const chooseReady = (item: LiveCatalogItem) => {
-    setSelectedReadyId(item.id);
+    setSelectedReadyId(item.id); setQuantity(1);
     const staticIndex = designs.findIndex((designItem) => designItem.image === item.image_url);
     if (staticIndex >= 0) setSelectedIndex(staticIndex);
   };
 
-  const chooseKoozieDesign = (group: (typeof koozieGroups)[number]) => {
-    setSelectedKoozieDesign(group.name); setSelectedReadyId(null); setQuantity(1);
+  const chooseKoozieDesign = (group: (typeof liveGroups)[number]) => {
+    setSelectedKoozieDesign(group.key); setSelectedReadyId(null); setQuantity(1);
     const staticIndex = designs.findIndex((designItem) => designItem.image === group.image);
     if (staticIndex >= 0) setSelectedIndex(staticIndex);
   };
 
   const chooseStaticDesign = (item: (typeof designs)[number], index: number) => {
-    setSelectedIndex(index);
-    setQuantity(1);
+    setSelectedIndex(index); setQuantity(1);
     const linkedGroup = findLiveGroupForDesign(item);
-
-    if (!linkedGroup) {
-      setSelectedReadyId(null);
-      setSelectedKoozieDesign(null);
-      return;
-    }
-
-    if (isKoozie) {
-      setSelectedKoozieDesign(linkedGroup.name);
-      setSelectedReadyId(null);
-    } else {
-      setSelectedKoozieDesign(null);
-      setSelectedReadyId(linkedGroup.variants[0]?.id ?? null);
-    }
+    if (!linkedGroup) { setSelectedReadyId(null); setSelectedKoozieDesign(null); return; }
+    if (isKoozie) { setSelectedKoozieDesign(linkedGroup.key); setSelectedReadyId(null); }
+    else { setSelectedKoozieDesign(null); setSelectedReadyId(linkedGroup.variants[0]?.id ?? null); }
   };
 
   const isStaticDesignActive = (item: (typeof designs)[number], index: number) => {
     const linkedGroup = findLiveGroupForDesign(item);
     if (!linkedGroup) return !selectedReady && !selectedGroup && selectedIndex === index;
-    return isKoozie
-      ? selectedKoozieDesign === linkedGroup.name
-      : selectedReady?.name === linkedGroup.name;
+    return isKoozie ? selectedKoozieDesign === linkedGroup.key : linkedGroup.variants.some((variant) => variant.id === selectedReadyId);
   };
 
   const addReadyToCart = () => {
     if (!selectedReady) return;
     if (!selectedReady.made_to_order && selectedReady.stock <= 0) return;
+    const color = isHeartStand ? selectedHeartColor : (selectedReady.team ?? "");
+    const displayName = isHeartStand ? `${selectedHeartColor} Heart Phone Stand` : selectedReady.name;
     addItem({
       productId: selectedReady.id,
-      name: `${product.name} - ${selectedReady.name}`,
+      name: `${product.name} - ${displayName}`,
       slug: product.slug,
       category: product.category,
       price: Number(selectedReady.price),
       quantity,
-      color: selectedReady.team ?? "",
+      color,
       option: selectedReady.size ?? "",
       personalization: "",
       note: selectedReady.made_to_order ? "Made to order" : "Ready-made catalog item",
-      imageUrl: selectedReady.image_url,
+      imageUrl: isHeartStand ? currentImage : selectedReady.image_url,
       weightOz: selectedReady.weight_oz,
       lengthIn: selectedReady.length_in,
       widthIn: selectedReady.width_in,
       heightIn: selectedReady.height_in,
     });
-    toast.success("Added to cart", { description: `${quantity} × ${selectedReady.name}${selectedReady.size ? ` • ${selectedReady.size}` : ""}` });
+    toast.success("Added to cart", { description: `${quantity} × ${displayName}${selectedReady.size ? ` • ${selectedReady.size}` : ""}` });
   };
 
-  const customDesign = selectedReady?.name ?? selectedGroup?.name ?? (selected ? displayDesignName(selected) : "");
+  const customDesign = selectedReady ? (isHeartStand ? inferHeartColor(selectedReady) : selectedReady.name) : selectedGroup?.name ?? (selected ? displayDesignName(selected) : "");
   const customHref = `/custom-orders?product=${encodeURIComponent(product.name)}${customDesign ? `&design=${encodeURIComponent(customDesign)}` : ""}`;
+  const heartBaseItem = readyItems[0] ?? null;
+  const heartOptions = HEART_COLORS.map((color) => ({
+    color,
+    item: readyItems.find((item) => normalize(inferHeartColor(item)) === normalize(color)) ?? heartBaseItem,
+  }));
 
   return <StoreLayout>
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 sm:py-12">
@@ -194,8 +225,8 @@ function ProductDetailPage() {
           <div className="mt-4 grid grid-cols-4 gap-3 sm:grid-cols-6">
             {designs.map((item, index) => <button key={item.id} type="button" onClick={() => chooseStaticDesign(item, index)} className={`overflow-hidden rounded-xl border p-1 ${isStaticDesignActive(item, index) ? "border-primary ring-2 ring-primary/15" : "border-border"}`}><img src={item.image} alt={displayDesignName(item)} className="aspect-[4/5] w-full rounded-lg object-cover" loading="lazy" /></button>)}
             {extraLiveGroups.map((group) => {
-              const active = isKoozie ? selectedKoozieDesign === group.name : selectedReady?.name === group.name;
-              return <button key={`live-${group.name}`} type="button" onClick={() => { setQuantity(1); if (isKoozie) { setSelectedKoozieDesign(group.name); setSelectedReadyId(null); } else { setSelectedKoozieDesign(null); setSelectedReadyId(group.variants[0]?.id ?? null); } }} className={`overflow-hidden rounded-xl border p-1 ${active ? "border-primary ring-2 ring-primary/15" : "border-border"}`}><img src={group.image} alt={group.name} className="aspect-[4/5] w-full rounded-lg object-cover" loading="lazy" /></button>;
+              const active = isKoozie ? selectedKoozieDesign === group.key : group.variants.some((variant) => variant.id === selectedReadyId);
+              return <button key={`live-${group.key}`} type="button" onClick={() => { if (isKoozie) chooseKoozieDesign(group); else chooseReady(group.variants[0]); }} className={`overflow-hidden rounded-xl border p-1 ${active ? "border-primary ring-2 ring-primary/15" : "border-border"}`}><img src={group.image} alt={group.option ? `${group.name} - ${group.option}` : group.name} className="aspect-[4/5] w-full rounded-lg object-cover" loading="lazy" /></button>;
             })}
           </div>
         </section>
@@ -209,11 +240,14 @@ function ProductDetailPage() {
           {readyItems.length > 0 && <div className="mt-7 rounded-[1.75rem] border border-border bg-card p-5 shadow-soft sm:p-6">
             {isKoozie ? <>
               <p className="text-xs font-bold uppercase tracking-[0.16em] text-primary">Ready to order</p><h2 className="mt-1 text-xl font-bold">1. Choose your koozie design</h2>
-              <div className="mt-4 grid gap-3 sm:grid-cols-2">{koozieGroups.map((group) => <button key={group.name} type="button" onClick={() => chooseKoozieDesign(group)} className={`flex gap-3 rounded-2xl border p-3 text-left transition-all ${selectedGroup?.name === group.name ? "border-primary bg-secondary/35 ring-2 ring-primary/15" : "border-border hover:bg-secondary/20"}`}><img src={group.image} alt={group.name} className="size-20 rounded-xl object-cover" /><span><span className="block font-bold">{group.name}</span>{group.team && <span className="mt-1 block text-xs text-muted-foreground">{group.team}</span>}<span className="mt-2 block text-[11px] text-muted-foreground">{group.variants.map((v) => v.size).filter(Boolean).join(" • ")}</span></span></button>)}</div>
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">{liveGroups.map((group) => <button key={group.key} type="button" onClick={() => chooseKoozieDesign(group)} className={`flex gap-3 rounded-2xl border p-3 text-left transition-all ${selectedGroup?.key === group.key ? "border-primary bg-secondary/35 ring-2 ring-primary/15" : "border-border hover:bg-secondary/20"}`}><img src={group.image} alt={group.name} className="size-20 rounded-xl object-cover" /><span><span className="block font-bold">{group.name}</span>{group.team && <span className="mt-1 block text-xs text-muted-foreground">{group.team}</span>}<span className="mt-2 block text-[11px] text-muted-foreground">{group.variants.map((v) => v.size).filter(Boolean).join(" • ")}</span></span></button>)}</div>
               {selectedGroup && <div className="mt-6 border-t border-border pt-5"><h3 className="text-lg font-bold">2. Choose your size</h3><div className="mt-3 grid grid-cols-3 gap-3">{selectedGroup.variants.map((item) => { const unavailable = !item.made_to_order && item.stock <= 0; const active = selectedReadyId === item.id; return <button key={item.id} type="button" disabled={unavailable} onClick={() => setSelectedReadyId(item.id)} className={`rounded-2xl border p-3 text-center disabled:opacity-45 ${active ? "border-primary bg-secondary/35 ring-2 ring-primary/15" : "border-border"}`}><strong className="block">{item.size ?? "Standard"}</strong><span className="mt-1 block text-sm font-bold text-primary">{formatPrice(item.price)}</span><span className="mt-1 block text-[10px] text-muted-foreground">{item.made_to_order ? "Made to order" : `${item.stock} ready`}</span></button>; })}</div></div>}
+            </> : isHeartStand ? <>
+              <div className="flex items-end justify-between"><div><p className="text-xs font-bold uppercase tracking-[0.16em] text-primary">Ready to order</p><h2 className="mt-1 text-xl font-bold">Choose your color</h2></div><Badge variant="secondary">5 colors</Badge></div>
+              <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3">{heartOptions.map(({ color, item }) => { const unavailable = !item || (!item.made_to_order && item.stock <= 0); const active = selectedHeartColor === color; const swatch = color === "Red" ? "#e53935" : color === "Hot Pink" ? "#ff2d8d" : color === "Light Pink" ? "#f7b8d0" : color === "Black" ? "#171717" : "#ffffff"; return <button key={color} type="button" disabled={!item || unavailable} onClick={() => { if (!item) return; setSelectedHeartColor(color); setSelectedReadyId(item.id); setQuantity(1); }} className={`rounded-2xl border p-3 text-left transition-all disabled:opacity-40 ${active ? "border-primary bg-secondary/35 ring-2 ring-primary/15" : "border-border hover:bg-secondary/20"}`}><span className="mb-3 block size-10 rounded-full border border-border shadow-sm" style={{ backgroundColor: swatch }} aria-hidden /><strong className="block">{color}</strong><span className="mt-1 block text-xs text-muted-foreground">{item ? `${formatPrice(item.price)} • ${item.made_to_order ? "Made to order" : `${item.stock} ready`}` : "Not listed yet"}</span></button>; })}</div>
             </> : <><div className="flex items-end justify-between"><div><p className="text-xs font-bold uppercase tracking-[0.16em] text-primary">Ready to order</p><h2 className="mt-1 text-xl font-bold">Choose an available option</h2></div><Badge variant="secondary">{readyItems.length} listed</Badge></div><div className="mt-4 grid gap-3 sm:grid-cols-2">{readyItems.map((item) => { const unavailable = !item.made_to_order && item.stock <= 0; const active = selectedReadyId === item.id; return <button key={item.id} type="button" disabled={unavailable} onClick={() => chooseReady(item)} className={`flex gap-3 rounded-2xl border p-3 text-left disabled:opacity-50 ${active ? "border-primary bg-secondary/35 ring-2 ring-primary/15" : "border-border"}`}><img src={item.image_url} alt={item.name} className="size-20 rounded-xl object-cover" /><span><span className="block font-bold">{item.name}</span><span className="mt-1 block text-xs text-muted-foreground">{[item.team,item.size].filter(Boolean).join(" • ")}</span><span className="mt-2 block font-bold text-primary">{formatPrice(item.price)}</span></span></button>; })}</div></>}
 
-            {selectedReady && <div className="mt-5 rounded-2xl bg-secondary/25 p-4"><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="font-bold">{selectedReady.name}</p><p className="text-sm text-muted-foreground">{[selectedReady.team, selectedReady.size].filter(Boolean).join(" • ")} {selectedReady.made_to_order ? "• Made to order" : `• ${selectedReady.stock} ready`}</p></div><p className="font-display text-2xl font-bold text-primary">{formatPrice(selectedReady.price)}</p></div><div className="mt-4 flex flex-wrap gap-3"><div className="flex items-center gap-2 rounded-full border border-border bg-background p-1"><Button type="button" variant="ghost" size="icon-sm" onClick={() => setQuantity((value) => Math.max(1, value - 1))}><Minus /></Button><span className="min-w-8 text-center font-bold">{quantity}</span><Button type="button" variant="ghost" size="icon-sm" onClick={() => setQuantity((value) => Math.min(selectedReady.made_to_order ? 99 : Math.max(1, selectedReady.stock), value + 1))}><Plus /></Button></div><Button variant="hero" className="min-w-48 flex-1" onClick={addReadyToCart}><ShoppingBag /> Add to Cart</Button></div></div>}
+            {selectedReady && <div className="mt-5 rounded-2xl bg-secondary/25 p-4"><div className="flex flex-wrap items-start justify-between gap-3"><div className="min-w-0 flex-1"><p className="font-bold">{isHeartStand ? `${selectedHeartColor} Heart Phone Stand` : selectedReady.name}</p><p className="text-sm text-muted-foreground">{[!isHeartStand && selectedReady.team, selectedReady.size].filter(Boolean).join(" • ")} {selectedReady.made_to_order ? "• Made to order" : `• ${selectedReady.stock} ready`}</p>{selectedReady.description && <p className="mt-3 max-w-2xl whitespace-pre-line text-sm leading-relaxed text-muted-foreground">{selectedReady.description}</p>}</div><p className="font-display text-2xl font-bold text-primary">{formatPrice(selectedReady.price)}</p></div><div className="mt-4 flex flex-wrap gap-3"><div className="flex items-center gap-2 rounded-full border border-border bg-background p-1"><Button type="button" variant="ghost" size="icon-sm" onClick={() => setQuantity((value) => Math.max(1, value - 1))}><Minus /></Button><span className="min-w-8 text-center font-bold">{quantity}</span><Button type="button" variant="ghost" size="icon-sm" onClick={() => setQuantity((value) => Math.min(selectedReady.made_to_order ? 99 : Math.max(1, selectedReady.stock), value + 1))}><Plus /></Button></div><Button variant="hero" className="min-w-48 flex-1" onClick={addReadyToCart}><ShoppingBag /> Add to Cart</Button></div></div>}
           </div>}
 
           <div className="mt-5 rounded-[1.75rem] border border-border bg-card p-5 shadow-soft sm:p-6"><h2 className="text-lg font-bold">Want different colors, a different team, or something completely custom?</h2><p className="mt-1 text-sm text-muted-foreground">Start a custom chat with JMB and request colors, size, theme, wording, or a design that is not already listed.</p><Button variant="hero" className="mt-5 w-full" asChild><a href={customHref}><Sparkles aria-hidden /> Customize This / Start a Chat</a></Button></div>
@@ -224,9 +258,9 @@ function ProductDetailPage() {
 
       <section className="mt-16 border-t border-border pt-12"><p className="text-xs font-bold uppercase tracking-[0.18em] text-primary">Available collection</p><h2 className="mt-2 text-3xl font-bold">All {product.name} Designs</h2><div className="mt-7 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
         {designs.map((item, index) => <button key={item.id} type="button" onClick={() => { chooseStaticDesign(item, index); window.scrollTo({ top: 0, behavior: "smooth" }); }} className="rounded-[1.5rem] border border-border bg-card p-3 text-left shadow-soft transition-transform hover:-translate-y-1"><img src={item.image} alt={displayDesignName(item)} className="aspect-[4/5] w-full rounded-[1.1rem] object-cover" loading="lazy" /><p className="px-2 pb-1 pt-3 text-sm font-bold">{displayDesignName(item)}</p></button>)}
-        {extraLiveGroups.map((group) => <button key={`collection-live-${group.name}`} type="button" onClick={() => { setQuantity(1); if (isKoozie) { setSelectedKoozieDesign(group.name); setSelectedReadyId(null); } else { setSelectedKoozieDesign(null); setSelectedReadyId(group.variants[0]?.id ?? null); } window.scrollTo({ top: 0, behavior: "smooth" }); }} className="rounded-[1.5rem] border border-border bg-card p-3 text-left shadow-soft transition-transform hover:-translate-y-1"><img src={group.image} alt={group.name} className="aspect-[4/5] w-full rounded-[1.1rem] object-cover" loading="lazy" /><p className="px-2 pb-1 pt-3 text-sm font-bold">{group.name}</p></button>)}
+        {extraLiveGroups.map((group) => <button key={`collection-live-${group.key}`} type="button" onClick={() => { if (isKoozie) chooseKoozieDesign(group); else chooseReady(group.variants[0]); window.scrollTo({ top: 0, behavior: "smooth" }); }} className="rounded-[1.5rem] border border-border bg-card p-3 text-left shadow-soft transition-transform hover:-translate-y-1"><img src={group.image} alt={group.option ? `${group.name} - ${group.option}` : group.name} className="aspect-[4/5] w-full rounded-[1.1rem] object-cover" loading="lazy" /><p className="px-2 pb-1 pt-3 text-sm font-bold">{group.option ? `${group.name} - ${group.option}` : group.name}</p></button>)}
       </div></section>
-      {related.length > 0 && <section className="mt-16 border-t border-border pt-12"><h2 className="text-3xl font-bold">More Products</h2><div className="mt-7 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">{related.map((item) => <ProductCard key={item.id} product={item} />)}</div></section>}
+      {related.length > 0 && <section className="mt-16 border-t border-border pt-12"><h2 className="text-3xl font-bold">More Products</h2><div className="mt-7 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">{related.map((item) => <ProductCard key={item.id} product={item} designCount={designCounts[item.slug]} />)}</div></section>}
     </div>
   </StoreLayout>;
 }

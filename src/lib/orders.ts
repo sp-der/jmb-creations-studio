@@ -225,3 +225,16 @@ export async function fetchGuestOrderItems(orderId: string, token: string) {
   const result = await guestOrderAccess(orderId, token);
   return result.items ?? [];
 }
+
+export async function reviewManualPayment(orderId: string, approved: boolean) {
+  const url = getSupabaseUrl();
+  const anonKey = getSupabaseAnonKey();
+  if (!url || !anonKey) throw new Error("Supabase is not configured.");
+  const response = await fetch(`${url}/functions/v1/jmb-review-manual-payment`, {
+    method: "POST",
+    headers: { ...getAdminAuthHeaders(), apikey: anonKey },
+    body: JSON.stringify({ orderId, approved }),
+  });
+  if (!response.ok) throw new Error(await parseError(response));
+  return await response.json() as { order: JmbOrder; emailSent?: boolean };
+}

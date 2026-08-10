@@ -1,4 +1,4 @@
-import { CheckCircle2, ExternalLink, Loader2, PackageCheck, Printer, RefreshCcw, RotateCcw, Truck } from "lucide-react";
+import { ExternalLink, Loader2, PackageCheck, Printer, RefreshCcw, Truck } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
@@ -7,13 +7,12 @@ import { buyOrderLabel, fetchAdminOrderItems, fetchAdminOrders, orderCode, updat
 
 const STATUSES: OrderStatus[] = ["Order Received", "Payment Confirmed", "In Production", "Ready for Pickup", "Shipped", "Completed", "Cancelled"];
 
-export function OrderManager() {
+export function OrderManager({ initialOrderId }: { initialOrderId?: string | null } = {}) {
   const [orders, setOrders] = useState<JmbOrder[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [items, setItems] = useState<JmbOrderItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [labelBusy, setLabelBusy] = useState(false);
-  const [paymentBusy, setPaymentBusy] = useState(false);
   const selected = useMemo(() => orders.find((order) => order.id === selectedId) ?? null, [orders, selectedId]);
 
   async function refresh() {
@@ -21,13 +20,14 @@ export function OrderManager() {
     try {
       const rows = await fetchAdminOrders();
       setOrders(rows);
-      setSelectedId((current) => current ?? rows[0]?.id ?? null);
+      setSelectedId((current) => (initialOrderId && rows.some((order) => order.id === initialOrderId)) ? initialOrderId : (current ?? rows[0]?.id ?? null));
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not load orders.");
     } finally { setLoading(false); }
   }
 
   useEffect(() => { void refresh(); }, []);
+  useEffect(() => { if (initialOrderId) setSelectedId(initialOrderId); }, [initialOrderId]);
   useEffect(() => {
     if (!selectedId) { setItems([]); return; }
     fetchAdminOrderItems(selectedId).then(setItems).catch(() => setItems([]));
@@ -42,18 +42,6 @@ export function OrderManager() {
     } catch (error) { toast.error(error instanceof Error ? error.message : "Could not update order."); }
   }
 
-  async function reviewManualPayment(approved: boolean) {
-    if (!selected) return;
-    setPaymentBusy(true);
-    try {
-      const updated = await updateAdminOrder(selected.id, approved
-        ? { payment_status: "Paid", status: selected.status === "Order Received" ? "Payment Confirmed" : selected.status }
-        : { payment_status: "Unpaid" });
-      setOrders((current) => current.map((order) => order.id === updated.id ? updated : order));
-      toast.success(approved ? "Payment marked Paid" : "Payment returned to Unpaid");
-    } catch (error) { toast.error(error instanceof Error ? error.message : "Could not review payment."); }
-    finally { setPaymentBusy(false); }
-  }
 
   async function buyLabel() {
     if (!selected) return;
@@ -73,7 +61,7 @@ export function OrderManager() {
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-4">
-        <div><p className="text-xs font-bold uppercase tracking-[0.18em] text-primary">Order management</p><h1 className="mt-1 text-3xl font-bold">Orders</h1><p className="mt-2 text-sm text-muted-foreground">Square payments confirm automatically. Zelle, PayPal and Venmo stay Pending until JMB verifies them here.</p></div>
+        <div><p className="text-xs font-bold uppercase tracking-[0.18em] text-primary">Order management</p><h1 className="mt-1 text-3xl font-bold">Orders</h1><p className="mt-2 text-sm text-muted-foreground">Manage order status, fulfillment, labels and tracking. Manual payment verification lives in the Payments tab.</p></div>
         <Button variant="soft" onClick={() => void refresh()} disabled={loading}>{loading ? <Loader2 className="animate-spin" /> : <RefreshCcw />} Refresh</Button>
       </div>
 
@@ -101,11 +89,8 @@ export function OrderManager() {
 
             <div className="p-5 sm:p-6">
               <div className="rounded-2xl border border-border p-4">
-                <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Payment review</p>
-                <div className="mt-2 flex flex-wrap items-center justify-between gap-3"><div><p className="font-bold">{selected.payment_method || "Payment method not chosen"}</p><p className="text-sm text-muted-foreground">Status: {selected.payment_status}{selected.payment_submitted_at ? ` • Submitted ${new Date(selected.payment_submitted_at).toLocaleString()}` : ""}</p></div>
-                  {selected.payment_status === "Pending" && selected.payment_method !== "Square" && <div className="flex gap-2"><Button variant="hero" size="sm" disabled={paymentBusy} onClick={() => void reviewManualPayment(true)}>{paymentBusy ? <Loader2 className="animate-spin" /> : <CheckCircle2 />} Mark Paid</Button><Button variant="soft" size="sm" disabled={paymentBusy} onClick={() => void reviewManualPayment(false)}><RotateCcw /> Not Received</Button></div>}
-                </div>
-                {selected.payment_status === "Pending" && selected.payment_method !== "Square" && <p className="mt-3 rounded-xl bg-amber-50 p-3 text-xs text-amber-950">Verify the customer's payment in {selected.payment_method} before pressing Mark Paid. Customers are instructed to include their name or {orderCode(selected)} in the payment memo.</p>}
+                <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Payment</p>
+                <div className="mt-2 flex flex-wrap items-center justify-between gap-3"><div><p className="font-bold">{selected.payment_method || "Payment method not chosen"}</p><p className="text-sm text-muted-foreground">Status: {selected.payment_status}{selected.payment_submitted_at ? ` • Submitted ${new Date(selected.payment_submitted_at).toLocaleString()}` : ""}</p></div>{selected.payment_status === "Pending" && selected.payment_method !== "Square" && <Badge variant="secondary">Review in Payments tab</Badge>}</div>
               </div>
 
               <h3 className="mt-6 font-bold">Items</h3>

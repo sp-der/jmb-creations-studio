@@ -36,7 +36,9 @@ Deno.serve(async (req) => {
       } catch { /* use stable SITE_URL */ }
     }
     const amount = Math.max(1, Math.round(Number(order.total) * 100));
-    const squareResponse = await fetch("https://connect.squareup.com/v2/online-checkout/payment-links", {
+    const squareEnvironment = (Deno.env.get("SQUARE_ENVIRONMENT") || "sandbox").toLowerCase();
+    const squareBaseUrl = squareEnvironment === "production" ? "https://connect.squareup.com" : "https://connect.squareupsandbox.com";
+    const squareResponse = await fetch(`${squareBaseUrl}/v2/online-checkout/payment-links`, {
       method: "POST",
       headers: {
         "Square-Version": "2026-07-15",

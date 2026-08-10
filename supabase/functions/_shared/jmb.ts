@@ -31,14 +31,14 @@ export function siteUrl() {
   return (Deno.env.get("SITE_URL") || "http://localhost:3000").replace(/\/$/, "");
 }
 
-export async function sendEmail(input: { to: string; subject: string; html: string }) {
+export async function sendEmail(input: { to: string; subject: string; html: string; replyTo?: string }) {
   const apiKey = Deno.env.get("RESEND_API_KEY");
   const from = Deno.env.get("JMB_FROM_EMAIL");
   if (!apiKey || !from) throw new Error("RESEND_API_KEY and JMB_FROM_EMAIL must be configured.");
   const response = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ from, to: [input.to], subject: input.subject, html: input.html }),
+    body: JSON.stringify({ from, to: [input.to], subject: input.subject, html: input.html, ...(input.replyTo ? { reply_to: input.replyTo } : {}) }),
   });
   if (!response.ok) throw new Error(`Email provider error: ${await response.text()}`);
   return await response.json();
@@ -67,9 +67,31 @@ export function money(value: number) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(Number(value) || 0);
 }
 
-export function emailShell(title: string, body: string) {
+export function emailButton(label: string, href: string) {
+  return `<div style="margin:26px 0;text-align:center"><a href="${href}" style="display:inline-block;padding:14px 22px;border-radius:999px;background:linear-gradient(90deg,#6251b5,#9b659e);color:#ffffff;text-decoration:none;font-weight:700;font-size:14px">${label}</a></div>`;
+}
+
+export function emailShell(title: string, body: string, eyebrow = "JMB 2 CREATIONS") {
   const logo = `${siteUrl()}/logo.png`;
-  return `<!doctype html><html><body style="margin:0;background:#f9f2f8;font-family:Arial,sans-serif;color:#29233f"><div style="max-width:640px;margin:0 auto;padding:28px 16px"><div style="background:linear-gradient(135deg,#f9c9d0,#f6d7e8,#dcd7f4);padding:26px;border-radius:24px 24px 0 0;text-align:center"><img src="${logo}" alt="JMB 2 Creations" style="height:80px;max-width:180px;object-fit:contain"><h1 style="margin:14px 0 0;font-size:26px">${title}</h1></div><div style="background:white;padding:28px;border-radius:0 0 24px 24px;border:1px solid #eadde9;border-top:0">${body}<p style="margin:28px 0 0;color:#8a8093;font-size:12px;text-align:center">JMB 2 Creations</p></div></div></body></html>`;
+  return `<!doctype html>
+<html><head><meta name="viewport" content="width=device-width,initial-scale=1"><meta charset="utf-8"></head>
+<body style="margin:0;background:#fbf6fb;font-family:Arial,Helvetica,sans-serif;color:#211a38">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#fbf6fb;padding:24px 10px"><tr><td align="center">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:660px;background:#ffffff;border:1px solid #eaddea;border-radius:28px;overflow:hidden;box-shadow:0 12px 38px rgba(82,62,118,.08)">
+      <tr><td style="padding:28px 28px 24px;text-align:center;background:linear-gradient(135deg,#fff0f4 0%,#f7e8f2 45%,#e8e5ff 100%)">
+        <img src="${logo}" alt="JMB 2 Creations" style="height:72px;max-width:170px;object-fit:contain;display:inline-block">
+        <div style="margin-top:12px;font-size:11px;letter-spacing:3px;font-weight:800;color:#6553b7">${eyebrow}</div>
+        <h1 style="margin:8px 0 0;font-size:28px;line-height:1.2;color:#211a38">${title}</h1>
+      </td></tr>
+      <tr><td style="padding:28px;font-size:15px;line-height:1.65;color:#453d58">${body}</td></tr>
+      <tr><td style="padding:18px 28px 26px;border-top:1px solid #f0e5ef;text-align:center;color:#8b8195;font-size:12px">
+        <strong style="color:#5f50ad">JMB 2 Creations</strong><br>
+        Questions? Reply to this email or contact support@jmb2creations.com.<br>
+        <a href="${siteUrl()}" style="color:#7b5ab1;text-decoration:none">${siteUrl().replace(/^https?:\/\//, "")}</a>
+      </td></tr>
+    </table>
+  </td></tr></table>
+</body></html>`;
 }
 
 export function easyPostAuth() {

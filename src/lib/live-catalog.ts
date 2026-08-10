@@ -2,6 +2,7 @@ export type LiveCatalogItem = {
   id: string;
   family_slug: string;
   name: string;
+  description: string | null;
   image_url: string;
   team: string | null;
   size: string | null;
@@ -18,6 +19,21 @@ export type LiveCatalogItem = {
 };
 
 export type LiveCatalogItemInput = Omit<LiveCatalogItem, "id" | "created_at">;
+
+export type LiveCatalogFamily = {
+  id: string;
+  slug: string;
+  name: string;
+  description: string | null;
+  image_url: string | null;
+  customizable: boolean;
+  active: boolean;
+  sort_order: number;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type LiveCatalogFamilyInput = Omit<LiveCatalogFamily, "id" | "created_at" | "updated_at">;
 
 const SUPABASE_URL = (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.replace(/\/$/, "");
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
@@ -166,6 +182,66 @@ export async function fetchLiveCatalogItems(familySlug: string, includeInactive 
   });
   if (!response.ok) throw new Error(await parseError(response));
   return (await response.json()) as LiveCatalogItem[];
+}
+
+export async function fetchAllLiveCatalogItems(includeInactive = false) {
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return [] as LiveCatalogItem[];
+  const filters = [
+    includeInactive ? "" : "active=eq.true",
+    "select=*",
+    "order=family_slug.asc,sort_order.asc,created_at.desc",
+  ].filter(Boolean).join("&");
+  const response = await fetch(`${SUPABASE_URL}/rest/v1/jmb_catalog_items?${filters}`, {
+    headers: includeInactive ? adminHeaders() : publicHeaders(),
+  });
+  if (!response.ok) throw new Error(await parseError(response));
+  return (await response.json()) as LiveCatalogItem[];
+}
+
+export async function fetchCatalogFamilies(includeInactive = false) {
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return [] as LiveCatalogFamily[];
+  const filters = [
+    includeInactive ? "" : "active=eq.true",
+    "select=*",
+    "order=sort_order.asc,created_at.asc",
+  ].filter(Boolean).join("&");
+  const response = await fetch(`${SUPABASE_URL}/rest/v1/jmb_catalog_families?${filters}`, {
+    headers: includeInactive ? adminHeaders() : publicHeaders(),
+  });
+  if (!response.ok) throw new Error(await parseError(response));
+  return (await response.json()) as LiveCatalogFamily[];
+}
+
+export async function fetchCatalogFamily(slug: string) {
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return null;
+  const response = await fetch(`${SUPABASE_URL}/rest/v1/jmb_catalog_families?slug=eq.${encodeURIComponent(slug)}&active=eq.true&select=*&limit=1`, { headers: publicHeaders() });
+  if (!response.ok) throw new Error(await parseError(response));
+  const rows = (await response.json()) as LiveCatalogFamily[];
+  return rows[0] ?? null;
+}
+
+export async function createCatalogFamily(input: LiveCatalogFamilyInput) {
+  if (!SUPABASE_URL) throw new Error("Supabase is not configured.");
+  const response = await fetch(`${SUPABASE_URL}/rest/v1/jmb_catalog_families`, {
+    method: "POST",
+    headers: { ...adminHeaders(), Prefer: "return=representation" },
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) throw new Error(await parseError(response));
+  const rows = (await response.json()) as LiveCatalogFamily[];
+  return rows[0];
+}
+
+export async function updateCatalogFamily(id: string, patch: Partial<LiveCatalogFamilyInput>) {
+  if (!SUPABASE_URL) throw new Error("Supabase is not configured.");
+  const response = await fetch(`${SUPABASE_URL}/rest/v1/jmb_catalog_families?id=eq.${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    headers: { ...adminHeaders(), Prefer: "return=representation" },
+    body: JSON.stringify(patch),
+  });
+  if (!response.ok) throw new Error(await parseError(response));
+  const rows = (await response.json()) as LiveCatalogFamily[];
+  return rows[0];
 }
 
 export async function createLiveCatalogItem(input: LiveCatalogItemInput) {

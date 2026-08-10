@@ -1,12 +1,11 @@
 import { Link, createFileRoute } from "@tanstack/react-router";
-import { Box, ClipboardList, FilePenLine, FileText, LayoutDashboard, Loader2, LogIn, LogOut, MessageCircleMore, Send, Settings2, ShoppingBag, Store, UserRoundCog } from "lucide-react";
+import { Box, CreditCard, FileText, Loader2, LogIn, LogOut, MessageCircleMore, Send, ShoppingBag, Store, UserRoundCog } from "lucide-react";
 import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { CatalogManager } from "@/components/admin/CatalogManager";
-import { DesignNameEditor } from "@/components/admin/DesignNameEditor";
 import { InvoiceMaker } from "@/components/admin/InvoiceMaker";
 import { OrderManager } from "@/components/admin/OrderManager";
-import { StorePaymentSettings } from "@/components/admin/StorePaymentSettings";
+import { PaymentReviewManager } from "@/components/admin/PaymentReviewManager";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { fetchAdminRequests, fetchMessages, requestCode, sendMessage, updateRequest, type CustomMessage, type CustomRequest } from "@/lib/custom-requests";
@@ -17,14 +16,12 @@ export const Route = createFileRoute("/admin")({
   component: AdminPage,
 });
 
-type Section = "overview" | "catalog" | "names" | "orders" | "invoices" | "settings" | "chats";
+type Section = "catalog" | "orders" | "payments" | "invoices" | "chats";
 const nav = [
-  { id: "overview" as const, label: "Overview", icon: LayoutDashboard },
   { id: "catalog" as const, label: "Catalog", icon: Box },
-  { id: "names" as const, label: "Product Names", icon: FilePenLine },
   { id: "orders" as const, label: "Orders", icon: ShoppingBag },
+  { id: "payments" as const, label: "Payments", icon: CreditCard },
   { id: "invoices" as const, label: "Invoices", icon: FileText },
-  { id: "settings" as const, label: "Shipping & Payments", icon: Settings2 },
   { id: "chats" as const, label: "Custom Chats", icon: MessageCircleMore },
 ];
 
@@ -47,9 +44,9 @@ function CustomChatsManager() {
 }
 
 function AdminPage() {
-  const [session, setSession] = useState<AdminSession | null>(null); const [checking, setChecking] = useState(true); const [section, setSection] = useState<Section>("overview");
+  const [session, setSession] = useState<AdminSession | null>(null); const [checking, setChecking] = useState(true); const [section, setSection] = useState<Section>("catalog"); const [focusedOrderId, setFocusedOrderId] = useState<string | null>(null);
   useEffect(() => { validateAdminSession().then(setSession).catch(() => setSession(null)).finally(() => setChecking(false)); }, []);
   if (checking) return <main className="grid min-h-screen place-items-center bg-[oklch(0.985_0.01_320)]"><div className="text-center"><Loader2 className="mx-auto size-6 animate-spin text-primary" /><p className="mt-3 text-sm text-muted-foreground">Verifying admin access...</p></div></main>;
   if (!session) return <AdminLogin onSignedIn={setSession} />;
-  return <div className="min-h-screen bg-[oklch(0.985_0.01_320)]"><header className="sticky top-0 z-40 border-b border-border bg-card/95 backdrop-blur"><div className="flex h-[68px] items-center justify-between px-4 sm:px-6"><div className="flex items-center gap-4"><img src="/logo.png" alt="JMB 2 Creations" className="h-11 w-16 object-contain" /><div className="border-l border-border pl-4"><p className="font-bold">Admin Dashboard</p><p className="text-xs text-muted-foreground">Catalog, orders, invoices & custom chats</p></div></div><div className="flex gap-2"><Button variant="soft" size="sm" asChild><Link to="/"><Store /> Storefront</Link></Button><Button variant="ghost" size="sm" onClick={() => { clearAdminSession(); setSession(null); }}><LogOut /> Sign Out</Button></div></div></header><div className="grid min-h-[calc(100vh-68px)] md:grid-cols-[210px_minmax(0,1fr)]"><aside className="border-r border-border bg-card p-3 md:sticky md:top-[68px] md:h-[calc(100vh-68px)]"><nav className="space-y-1">{nav.map((item) => { const Icon = item.icon; return <button key={item.id} type="button" onClick={() => setSection(item.id)} className={`flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-bold ${section === item.id ? "bg-gradient-plum text-primary-foreground" : "text-muted-foreground hover:bg-secondary/30 hover:text-foreground"}`}><Icon className="size-4" />{item.label}</button>; })}</nav><div className="mt-6 rounded-2xl bg-secondary/35 p-4"><UserRoundCog className="size-5 text-primary" /><p className="mt-2 text-xs font-bold">Signed in as</p><p className="mt-1 break-all text-[11px] text-muted-foreground">{session.user?.email}</p></div></aside><main className="min-w-0 p-4 sm:p-6 lg:p-8">{section === "overview" && <div className="space-y-6"><div><p className="text-xs font-bold uppercase tracking-[0.18em] text-primary">JMB workspace</p><h1 className="mt-1 font-display text-4xl font-bold">Dashboard</h1><p className="mt-2 text-muted-foreground">Manage the live storefront, customer orders, catalog pricing and conversations from one workspace.</p></div><div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{[{ title: "Catalog", text: "Add ready-made variants, attached images, pricing and stock.", icon: Box, target: "catalog" as Section }, { title: "Product Names", text: "Rename imported design labels such as Koozie (1).", icon: FilePenLine, target: "names" as Section }, { title: "Orders", text: "Guest and account orders, fulfillment, labels and tracking.", icon: ClipboardList, target: "orders" as Section }, { title: "Invoices", text: "Build and email custom JMB invoices.", icon: FileText, target: "invoices" as Section }].map((card) => { const Icon = card.icon; return <button key={card.title} onClick={() => setSection(card.target)} className="rounded-[1.5rem] border border-border bg-card p-5 text-left shadow-soft transition-transform hover:-translate-y-1"><Icon className="size-6 text-primary" /><h2 className="mt-4 text-xl font-bold">{card.title}</h2><p className="mt-2 text-sm text-muted-foreground">{card.text}</p></button>; })}</div></div>}{section === "catalog" && <CatalogManager />}{section === "names" && <DesignNameEditor />}{section === "orders" && <OrderManager />}{section === "invoices" && <InvoiceMaker />}{section === "settings" && <StorePaymentSettings />}{section === "chats" && <CustomChatsManager />}</main></div></div>;
+  return <div className="min-h-screen bg-[oklch(0.985_0.01_320)]"><header className="sticky top-0 z-40 border-b border-border bg-card/95 backdrop-blur"><div className="flex h-[68px] items-center justify-between px-4 sm:px-6"><div className="flex items-center gap-4"><img src="/logo.png" alt="JMB 2 Creations" className="h-11 w-16 object-contain" /><div className="border-l border-border pl-4"><p className="font-bold">Admin Dashboard</p><p className="text-xs text-muted-foreground">Catalog, orders, payments & custom chats</p></div></div><div className="flex gap-2"><Button variant="soft" size="sm" asChild><Link to="/"><Store /> Storefront</Link></Button><Button variant="ghost" size="sm" onClick={() => { clearAdminSession(); setSession(null); }}><LogOut /> Sign Out</Button></div></div></header><div className="grid min-h-[calc(100vh-68px)] md:grid-cols-[210px_minmax(0,1fr)]"><aside className="border-r border-border bg-card p-3 md:sticky md:top-[68px] md:h-[calc(100vh-68px)]"><nav className="space-y-1">{nav.map((item) => { const Icon = item.icon; return <button key={item.id} type="button" onClick={() => setSection(item.id)} className={`flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-bold ${section === item.id ? "bg-gradient-plum text-primary-foreground" : "text-muted-foreground hover:bg-secondary/30 hover:text-foreground"}`}><Icon className="size-4" />{item.label}</button>; })}</nav><div className="mt-6 rounded-2xl bg-secondary/35 p-4"><UserRoundCog className="size-5 text-primary" /><p className="mt-2 text-xs font-bold">Signed in as</p><p className="mt-1 break-all text-[11px] text-muted-foreground">{session.user?.email}</p></div></aside><main className="min-w-0 p-4 sm:p-6 lg:p-8">{section === "catalog" && <CatalogManager />}{section === "orders" && <OrderManager initialOrderId={focusedOrderId} />}{section === "payments" && <PaymentReviewManager onOpenOrder={(orderId) => { setFocusedOrderId(orderId); setSection("orders"); }} />}{section === "invoices" && <InvoiceMaker />}{section === "chats" && <CustomChatsManager />}</main></div></div>;
 }
