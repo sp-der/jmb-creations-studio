@@ -99,3 +99,35 @@ export function easyPostAuth() {
   if (!key) throw new Error("EASYPOST_API_KEY is not configured.");
   return `Basic ${btoa(`${key}:`)}`;
 }
+
+export function shippoHeaders() {
+  const token = Deno.env.get("SHIPPO_API_TOKEN");
+  if (!token) throw new Error("SHIPPO_API_TOKEN is not configured.");
+  return {
+    Authorization: `ShippoToken ${token}`,
+    "Content-Type": "application/json",
+    "SHIPPO-API-VERSION": "2018-02-08",
+  };
+}
+
+export async function getShipFromAddress() {
+  const client = adminClient();
+  const { data: store, error } = await client.from("jmb_store_settings").select("*").eq("id", 1).maybeSingle();
+  if (error) throw new Error(error.message);
+
+  const address = {
+    name: store?.ship_from_name || Deno.env.get("JMB_SHIP_FROM_NAME") || "JMB 2 Creations",
+    street1: store?.ship_from_street1 || Deno.env.get("JMB_SHIP_FROM_STREET1"),
+    street2: store?.ship_from_street2 || Deno.env.get("JMB_SHIP_FROM_STREET2") || undefined,
+    city: store?.ship_from_city || Deno.env.get("JMB_SHIP_FROM_CITY"),
+    state: store?.ship_from_state || Deno.env.get("JMB_SHIP_FROM_STATE"),
+    zip: store?.ship_from_zip || Deno.env.get("JMB_SHIP_FROM_ZIP"),
+    country: store?.ship_from_country || Deno.env.get("JMB_SHIP_FROM_COUNTRY") || "US",
+  };
+
+  if (!address.street1 || !address.city || !address.state || !address.zip) {
+    throw new Error("JMB shipping origin is not configured. Add it in Admin → Shipping & Payments.");
+  }
+
+  return address;
+}

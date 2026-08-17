@@ -1,4 +1,4 @@
-import { adminClient, corsHeaders, easyPostAuth, emailShell, getOptionalUser, json, makePrivateToken, money, sendEmail, sha256Hex, siteUrl } from "../_shared/jmb.ts";
+import { adminClient, corsHeaders, emailShell, getOptionalUser, json, makePrivateToken, money, sendEmail, sha256Hex, shippoHeaders, siteUrl } from "../_shared/jmb.ts";
 
 type Input = {
   firstName?: string; lastName?: string; email?: string; fulfillment?: "Shipping" | "Local Pickup";
@@ -25,12 +25,12 @@ Deno.serve(async (req) => {
     let shippingAmount = 0;
     if (input.fulfillment === "Shipping") {
       if (!input.address?.address1 || !input.address.city || !input.address.state || !input.address.postalCode || !input.shipmentId || !input.rateId) return json({ error: "A valid shipping address and selected carrier rate are required." }, 400);
-      const shipmentResponse = await fetch(`https://api.easypost.com/v2/shipments/${encodeURIComponent(input.shipmentId)}`, { headers: { Authorization: easyPostAuth() } });
+      const shipmentResponse = await fetch(`https://api.goshippo.com/shipments/${encodeURIComponent(input.shipmentId)}`, { headers: shippoHeaders() });
       if (!shipmentResponse.ok) return json({ error: "Could not verify the selected shipping rate." }, 400);
       const shipment = await shipmentResponse.json();
-      const rate = (shipment.rates ?? []).find((item: any) => item.id === input.rateId);
+      const rate = (shipment.rates ?? []).find((item: any) => item.object_id === input.rateId);
       if (!rate) return json({ error: "The selected shipping rate is no longer valid." }, 400);
-      shippingAmount = Number(rate.rate) || 0;
+      shippingAmount = Number(rate.amount) || 0;
     }
 
     const client = adminClient();
@@ -49,6 +49,8 @@ Deno.serve(async (req) => {
       p_postal_code: input.fulfillment === "Shipping" ? input.address?.postalCode ?? null : null,
       p_country: input.fulfillment === "Shipping" ? input.address?.country || "US" : null,
       p_shipping_amount: shippingAmount,
+      // Legacy RPC parameter names are retained so the production schema does not need a risky rewrite.
+      // These fields now store Shippo shipment/rate object IDs for newly created orders.
       p_easypost_shipment_id: input.fulfillment === "Shipping" ? input.shipmentId : null,
       p_easypost_rate_id: input.fulfillment === "Shipping" ? input.rateId : null,
       p_items: rpcItems,
