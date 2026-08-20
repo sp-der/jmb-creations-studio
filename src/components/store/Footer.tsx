@@ -1,11 +1,10 @@
 import { Link } from "@tanstack/react-router";
-import { Facebook, Instagram, LayoutDashboard, MapPin, MessageCircleMore, Truck, UserRound } from "lucide-react";
+import { Facebook, Instagram, MapPin, Truck } from "lucide-react";
 
 import { SOCIAL } from "@/data/catalog";
 
 const shopLinks = [
   { to: "/shop", label: "All Creations" },
-  { to: "/categories", label: "Shop by Category" },
   { to: "/custom-orders", label: "Custom Order Chat" },
   { to: "/cart", label: "Checkout Demo" },
 ] as const;
