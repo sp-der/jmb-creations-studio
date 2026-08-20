@@ -87,7 +87,7 @@ export function Navbar() {
             variant="ghost"
             size="icon"
             asChild
-            aria-label="Open presentation admin dashboard"
+            aria-label="Open admin dashboard"
             className="hidden sm:inline-flex"
           >
             <Link to="/admin">
@@ -126,7 +126,7 @@ export function Navbar() {
                 </Button>
                 <Button variant="soft" asChild onClick={() => setMobileOpen(false)}>
                   <Link to="/admin">
-                    <LayoutDashboard aria-hidden /> Admin Dashboard Demo
+                    <LayoutDashboard aria-hidden /> Admin Dashboard
                   </Link>
                 </Button>
               </div>
