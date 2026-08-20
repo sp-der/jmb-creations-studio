@@ -10,7 +10,6 @@ import { useCart } from "@/lib/cart";
 export const NAV_LINKS = [
   { to: "/", label: "Home" },
   { to: "/shop", label: "Shop" },
-  { to: "/categories", label: "Categories" },
   { to: "/custom-orders", label: "Custom Orders" },
   { to: "/about", label: "About Us" },
   { to: "/faq", label: "FAQ" },
