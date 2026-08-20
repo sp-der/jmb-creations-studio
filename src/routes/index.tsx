@@ -49,13 +49,6 @@ function Home() {
         </div>
       </section>
 
-      <section className="mx-auto max-w-7xl px-4 py-16 sm:px-6">
-        <div className="flex flex-wrap items-end justify-between gap-4"><div><p className="text-xs font-bold uppercase tracking-[0.22em] text-primary">Browse</p><h2 className="mt-2 text-3xl font-bold sm:text-4xl">Shop by category</h2></div><Button variant="soft" asChild><Link to="/categories">View All Categories</Link></Button></div>
-        <div className="mt-8 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
-          {products.map((product) => { const count = designCounts[product.slug] ?? product.designs.length; return <Link key={product.slug} to="/category/$slug" params={{ slug: product.categorySlug }} className="card-lift group overflow-hidden rounded-[1.75rem] border border-border bg-card p-3 shadow-soft"><img src={product.mainImage} alt={product.name} className="aspect-[4/5] w-full rounded-2xl object-cover" loading="lazy" /><div className="px-2 py-3"><h3 className="text-base font-bold">{product.name}</h3><p className="mt-1 text-xs text-muted-foreground">{count} {count === 1 ? "design" : "designs"} available</p></div></Link>; })}
-        </div>
-      </section>
-
       <section className="bg-secondary/30 py-16"><div className="mx-auto max-w-7xl px-4 sm:px-6"><div className="flex flex-wrap items-end justify-between gap-4"><div><p className="text-xs font-bold uppercase tracking-[0.22em] text-primary">Shop</p><h2 className="mt-2 text-3xl font-bold sm:text-4xl">Product collections</h2></div><Button variant="soft" asChild><Link to="/shop">See all products</Link></Button></div><div className="mt-8 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">{products.map((product) => <ProductCard key={product.id} product={product} designCount={designCounts[product.slug]} />)}</div></div></section>
 
       <section className="mx-auto max-w-7xl px-4 py-16 sm:px-6"><div className="relative overflow-hidden rounded-[2.5rem] bg-gradient-plum px-6 py-14 text-center shadow-lift sm:px-12"><FloatingDecor className="opacity-40" /><div className="relative mx-auto max-w-2xl"><h2 className="text-3xl font-bold text-primary-foreground sm:text-4xl">Have an Idea? Let's Create It.</h2><p className="mt-4 text-base text-primary-foreground/85">Send JMB your colors, theme, size, quantity, and reference images. Custom requests can be reviewed and discussed before the order is finalized.</p><Button variant="sweet" size="lg" className="mt-8" asChild><Link to="/custom-orders">Start a Custom Request</Link></Button></div></div></section>
