@@ -1,7 +1,6 @@
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { Heart, Recycle, Sparkles, Users } from "lucide-react";
 
-import { ProductPlaceholder } from "@/components/brand/ProductPlaceholder";
 import { PageHeader, StoreLayout } from "@/components/store/StoreLayout";
 import { Button } from "@/components/ui/button";
 
@@ -40,13 +39,8 @@ function About() {
         subtitle="We love turning creative ideas into physical, colorful things you can hold."
       />
 
-      <section className="mx-auto grid max-w-7xl items-center gap-10 px-4 py-14 sm:px-6 lg:grid-cols-2">
-        <ProductPlaceholder
-          label="Family / workshop photo placeholder"
-          seed={1}
-          className="aspect-[4/3] w-full shadow-soft"
-        />
-        <div>
+      <section className="mx-auto max-w-4xl px-4 py-14 sm:px-6">
+        <div className="rounded-[2rem] border border-border bg-card p-6 shadow-soft sm:p-8">
           <h2 className="text-3xl font-bold">How we got here</h2>
           <p className="mt-4 text-muted-foreground">
             It started with one printer on the kitchen table and a lot of curiosity. One charm became
