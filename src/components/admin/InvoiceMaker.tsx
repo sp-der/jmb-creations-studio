@@ -1,10 +1,11 @@
-import { Mail, Plus, Printer, ReceiptText, Save, Trash2 } from "lucide-react";
+import { Download, Mail, Plus, Printer, ReceiptText, Save, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { fetchAdminRequests, requestCode, type CustomRequest } from "@/lib/custom-requests";
 import { createInvoice, invoiceCode, sendInvoiceEmail, type JmbInvoice } from "@/lib/invoices";
+import { downloadInvoicePdf } from "@/lib/invoice-pdf";
 
 const PRESET_TYPES = ["Cup Koozie", "Cosplay Sword", "Tap Wand", "Soap Dispenser", "Display Shelf", "Custom Item", "Glasses Holder", "Heart Phone Stand"];
 type DraftLine = { id: string; line_type: string; description: string; quantity: number; unit_price: number };
@@ -21,6 +22,7 @@ export function InvoiceMaker() {
   const [discount, setDiscount] = useState(0);
   const [notes, setNotes] = useState("");
   const [savedInvoice, setSavedInvoice] = useState<JmbInvoice | null>(null);
+  const [savedInvoiceLines, setSavedInvoiceLines] = useState<Awaited<ReturnType<typeof createInvoice>>["lines"]>([]);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => { fetchAdminRequests().then(setRequests).catch(() => setRequests([])); }, []);
@@ -29,7 +31,7 @@ export function InvoiceMaker() {
     if (!selectedRequest) return;
     setCustomerName(selectedRequest.customer_name);
     setCustomerEmail(selectedRequest.customer_email);
-  }, [selectedRequest?.id]);
+  }, [selectedRequest]);
 
   const subtotal = useMemo(() => lines.reduce((sum, line) => sum + Math.max(1, Number(line.quantity) || 1) * Math.max(0, Number(line.unit_price) || 0), 0), [lines]);
   const total = Math.max(0, subtotal + shipping + tax - discount);
@@ -54,8 +56,26 @@ export function InvoiceMaker() {
         lines: lines.map(({ line_type, description, quantity, unit_price }) => ({ line_type, description: description.trim(), quantity, unit_price })),
       });
       setSavedInvoice(result.invoice);
-      toast.success(`${invoiceCode(result.invoice)} saved`);
+      setSavedInvoiceLines(result.lines);
+      try {
+        await downloadInvoicePdf({ invoice: result.invoice, lines: result.lines });
+        toast.success(`${invoiceCode(result.invoice)} saved and downloaded`);
+      } catch (downloadError) {
+        toast.warning(`${invoiceCode(result.invoice)} was saved, but the PDF could not download.`, {
+          description: downloadError instanceof Error ? downloadError.message : "Use Download PDF to try again.",
+        });
+      }
     } catch (error) { toast.error(error instanceof Error ? error.message : "Could not save invoice."); }
+    finally { setBusy(false); }
+  }
+
+  async function downloadPdf() {
+    if (!savedInvoice) return toast.error("Save the invoice first.");
+    setBusy(true);
+    try {
+      const filename = await downloadInvoicePdf({ invoice: savedInvoice, lines: savedInvoiceLines });
+      toast.success(`${filename} downloaded`);
+    } catch (error) { toast.error(error instanceof Error ? error.message : "Could not download the PDF."); }
     finally { setBusy(false); }
   }
 
@@ -74,15 +94,15 @@ export function InvoiceMaker() {
         <section className="rounded-[1.75rem] border border-border bg-card p-5 shadow-soft sm:p-6">
           <div className="flex items-center gap-3"><span className="grid size-11 place-items-center rounded-2xl bg-secondary text-primary"><ReceiptText /></span><div><h2 className="text-xl font-bold">Invoice details</h2><p className="text-sm text-muted-foreground">Prices are entered by JMB for each custom order.</p></div></div>
           <div className="mt-6 space-y-4">
-            <label className="block text-sm font-bold">Attach custom request<select value={requestId} onChange={(event) => setRequestId(event.target.value)} className="mt-2 h-11 w-full rounded-xl border border-input bg-background px-3 text-sm"><option value="">No request / manual invoice</option>{requests.map((request) => <option key={request.id} value={request.id}>{requestCode(request)} • {request.customer_name} • {request.product_family}</option>)}</select></label>
+            <label className="block text-sm font-bold">Attach custom request<select value={requestId} onChange={(event) => { setSavedInvoice(null); setRequestId(event.target.value); }} className="mt-2 h-11 w-full rounded-xl border border-input bg-background px-3 text-sm"><option value="">No request / manual invoice</option>{requests.map((request) => <option key={request.id} value={request.id}>{requestCode(request)} • {request.customer_name} • {request.product_family}</option>)}</select></label>
             <div className="grid gap-4 sm:grid-cols-2"><label className="text-sm font-bold">Customer name<Input className="mt-2" value={customerName} onChange={(event) => { setSavedInvoice(null); setCustomerName(event.target.value); }} /></label><label className="text-sm font-bold">Customer email<Input className="mt-2" type="email" value={customerEmail} onChange={(event) => { setSavedInvoice(null); setCustomerEmail(event.target.value); }} /></label></div>
             <div className="space-y-3">
               {lines.map((line) => <div key={line.id} className="rounded-2xl border border-border p-4"><div className="grid gap-3 sm:grid-cols-[160px_minmax(0,1fr)]"><select value={line.line_type} onChange={(event) => patchLine(line.id, { line_type: event.target.value, description: line.description || event.target.value })} className="h-10 rounded-xl border border-input bg-background px-3 text-sm">{PRESET_TYPES.map((type) => <option key={type}>{type}</option>)}</select><Input value={line.description} onChange={(event) => patchLine(line.id, { description: event.target.value })} placeholder="Description / customization" /></div><div className="mt-3 grid grid-cols-[100px_minmax(0,1fr)_auto] gap-3"><Input type="number" min="1" value={line.quantity} onChange={(event) => patchLine(line.id, { quantity: Math.max(1, Number(event.target.value) || 1) })} /><Input type="number" min="0" step="0.01" value={line.unit_price} onChange={(event) => patchLine(line.id, { unit_price: Math.max(0, Number(event.target.value) || 0) })} placeholder="Unit price" /><Button variant="ghost" size="icon" onClick={() => removeLine(line.id)} aria-label="Remove line"><Trash2 /></Button></div></div>)}
             </div>
-            <Button variant="soft" onClick={() => setLines((current) => [...current, newLine()])}><Plus /> Add Line</Button>
+            <Button variant="soft" onClick={() => { setSavedInvoice(null); setLines((current) => [...current, newLine()]); }}><Plus /> Add Line</Button>
             <div className="grid gap-3 sm:grid-cols-3"><label className="text-sm font-bold">Shipping<Input className="mt-2" type="number" min="0" step="0.01" value={shipping} onChange={(event) => { setSavedInvoice(null); setShipping(Number(event.target.value) || 0); }} /></label><label className="text-sm font-bold">Tax<Input className="mt-2" type="number" min="0" step="0.01" value={tax} onChange={(event) => { setSavedInvoice(null); setTax(Number(event.target.value) || 0); }} /></label><label className="text-sm font-bold">Discount<Input className="mt-2" type="number" min="0" step="0.01" value={discount} onChange={(event) => { setSavedInvoice(null); setDiscount(Number(event.target.value) || 0); }} /></label></div>
             <label className="block text-sm font-bold">Notes<textarea rows={3} className="mt-2 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm" value={notes} onChange={(event) => { setSavedInvoice(null); setNotes(event.target.value); }} /></label>
-            <div className="flex flex-wrap gap-3"><Button variant="hero" onClick={() => void save()} disabled={busy}><Save /> {busy ? "Saving..." : "Save Invoice"}</Button><Button variant="soft" onClick={() => window.print()}><Printer /> Print / Save PDF</Button><Button variant="soft" onClick={() => void emailInvoice()} disabled={!savedInvoice || busy}><Mail /> Email Invoice</Button></div>
+            <div className="flex flex-wrap gap-3"><Button variant="hero" onClick={() => void save()} disabled={busy}><Save /> {busy ? "Saving..." : "Save & Download PDF"}</Button><Button variant="soft" onClick={() => void downloadPdf()} disabled={!savedInvoice || busy}><Download /> Download PDF</Button><Button variant="soft" onClick={() => window.print()} disabled={busy}><Printer /> Print</Button><Button variant="soft" onClick={() => void emailInvoice()} disabled={!savedInvoice || busy}><Mail /> Email Invoice</Button></div>
           </div>
         </section>
 
