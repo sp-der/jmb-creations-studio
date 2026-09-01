@@ -45,6 +45,20 @@ function safeFilePart(value: string) {
     .slice(0, 50);
 }
 
+function triggerPdfDownload(blob: Blob, filename: string) {
+  if (typeof document === "undefined") throw new Error("PDF downloads require a browser.");
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.rel = "noopener";
+  link.style.display = "none";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
 export async function downloadInvoicePdf(input: { invoice: JmbInvoice; lines: InvoicePdfLine[] }) {
   const [{ jsPDF }, logo] = await Promise.all([import("jspdf"), loadLogo()]);
   const doc = new jsPDF({ unit: "pt", format: "letter", compress: true });
@@ -223,6 +237,6 @@ export async function downloadInvoicePdf(input: { invoice: JmbInvoice; lines: In
 
   const customer = safeFilePart(input.invoice.customer_name) || "Customer";
   const filename = `${code}-${customer}.pdf`;
-  doc.save(filename);
+  triggerPdfDownload(doc.output("blob"), filename);
   return filename;
 }
