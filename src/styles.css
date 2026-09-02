@@ -134,11 +134,8 @@
   --border: oklch(0.912 0.028 330);
   --input: oklch(0.9 0.03 330);
   --ring: oklch(0.62 0.113 288);
-  --gradient-hero: radial-gradient(
-      120% 120% at 20% 0%,
-      oklch(0.878 0.056 3.5 / 0.75) 0%,
-      transparent 60%
-    ),
+  --gradient-hero:
+    radial-gradient(120% 120% at 20% 0%, oklch(0.878 0.056 3.5 / 0.75) 0%, transparent 60%),
     radial-gradient(100% 100% at 90% 20%, oklch(0.62 0.113 288 / 0.28) 0%, transparent 55%),
     linear-gradient(180deg, oklch(0.995 0.004 340) 0%, oklch(0.97 0.02 330) 100%);
   --gradient-sweet: linear-gradient(135deg, var(--pastel) 0%, var(--lavender) 100%);
@@ -247,5 +244,45 @@
   &:hover {
     transform: translateY(-6px);
     box-shadow: var(--shadow-lift);
+  }
+}
+
+@media print {
+  @page {
+    size: letter portrait;
+    margin: 0;
+  }
+
+  html,
+  body {
+    width: 8.5in !important;
+    height: 11in !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: hidden !important;
+    background: white !important;
+  }
+
+  body * {
+    visibility: hidden !important;
+  }
+
+  #jmb-invoice-preview,
+  #jmb-invoice-preview * {
+    visibility: visible !important;
+  }
+
+  #jmb-invoice-preview {
+    position: absolute !important;
+    inset: 0 !important;
+    width: 8.5in !important;
+    height: 11in !important;
+    margin: 0 !important;
+    overflow: hidden !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
   }
 }

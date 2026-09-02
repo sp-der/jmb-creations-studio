@@ -21,17 +21,30 @@ const money = (value: number) =>
 const invoiceCode = (invoice: Pick<JmbInvoice, "invoice_number">) =>
   `INV-${String(invoice.invoice_number).padStart(4, "0")}`;
 
-async function loadLogo() {
+type LoadedLogo = {
+  dataUrl: string;
+  width: number;
+  height: number;
+};
+
+async function loadLogo(): Promise<LoadedLogo | null> {
   try {
     const response = await fetch("/logo.png");
     if (!response.ok) return null;
     const blob = await response.blob();
-    return await new Promise<string>((resolve, reject) => {
+    const dataUrl = await new Promise<string>((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = () => resolve(String(reader.result));
       reader.onerror = () => reject(reader.error);
       reader.readAsDataURL(blob);
     });
+    const dimensions = await new Promise<{ width: number; height: number }>((resolve, reject) => {
+      const image = new Image();
+      image.onload = () => resolve({ width: image.naturalWidth, height: image.naturalHeight });
+      image.onerror = () => reject(new Error("The JMB logo could not be decoded."));
+      image.src = dataUrl;
+    });
+    return { dataUrl, ...dimensions };
   } catch {
     return null;
   }
@@ -59,7 +72,7 @@ function triggerPdfDownload(blob: Blob, filename: string) {
   window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
-export async function downloadInvoicePdf(input: { invoice: JmbInvoice; lines: InvoicePdfLine[] }) {
+async function buildInvoicePdf(input: { invoice: JmbInvoice; lines: InvoicePdfLine[] }) {
   const [{ jsPDF }, logo] = await Promise.all([import("jspdf"), loadLogo()]);
   const doc = new jsPDF({ unit: "pt", format: "letter", compress: true });
   const pageWidth = doc.internal.pageSize.getWidth();
@@ -72,23 +85,27 @@ export async function downloadInvoicePdf(input: { invoice: JmbInvoice; lines: In
   const setFill = (color: readonly [number, number, number]) => doc.setFillColor(...color);
   const setDraw = (color: readonly [number, number, number]) => doc.setDrawColor(...color);
 
-  function drawContinuationHeader() {
-    setFill(COLORS.pale);
-    doc.rect(0, 0, pageWidth, 58, "F");
-    setText(COLORS.plum);
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(12);
-    doc.text("JMB 2 CREATIONS", margin, 35);
-    setText(COLORS.ink);
-    doc.text(code, pageWidth - margin, 35, { align: "right" });
-  }
-
   setFill(COLORS.blush);
   doc.rect(0, 0, pageWidth * 0.55, 112, "F");
   setFill(COLORS.lavender);
   doc.rect(pageWidth * 0.55, 0, pageWidth * 0.45, 112, "F");
-  if (logo) doc.addImage(logo, "PNG", margin, 22, 105, 68, undefined, "FAST");
-  else {
+  if (logo) {
+    const maxWidth = 105;
+    const maxHeight = 68;
+    const scale = Math.min(maxWidth / logo.width, maxHeight / logo.height);
+    const logoWidth = logo.width * scale;
+    const logoHeight = logo.height * scale;
+    doc.addImage(
+      logo.dataUrl,
+      "PNG",
+      margin + (maxWidth - logoWidth) / 2,
+      22 + (maxHeight - logoHeight) / 2,
+      logoWidth,
+      logoHeight,
+      undefined,
+      "FAST",
+    );
+  } else {
     setText(COLORS.plum);
     doc.setFont("helvetica", "bold");
     doc.setFontSize(17);
@@ -138,40 +155,15 @@ export async function downloadInvoicePdf(input: { invoice: JmbInvoice; lines: In
   };
   drawTableHeader();
 
-  for (const line of input.lines) {
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(10);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(10);
+  const preparedLines = input.lines.map((line) => {
     const description = doc.splitTextToSize(
       line.description || line.line_type,
       contentWidth - 180,
     ) as string[];
-    const rowHeight = Math.max(48, 29 + description.length * 12);
-    if (y + rowHeight > pageHeight - 118) {
-      doc.addPage();
-      drawContinuationHeader();
-      y = 80;
-      drawTableHeader();
-    }
-    setDraw(COLORS.border);
-    doc.line(margin, y + rowHeight, pageWidth - margin, y + rowHeight);
-    setText(COLORS.ink);
-    doc.text(description, margin + 12, y + 18);
-    setText(COLORS.muted);
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(8);
-    doc.text(
-      `${line.line_type}  •  ${money(line.unit_price)} each`,
-      margin + 12,
-      y + rowHeight - 11,
-    );
-    setText(COLORS.ink);
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(10);
-    doc.text(String(line.quantity), pageWidth - margin - 112, y + 22, { align: "center" });
-    doc.setFont("helvetica", "bold");
-    doc.text(money(line.line_total), pageWidth - margin - 12, y + 22, { align: "right" });
-    y += rowHeight;
-  }
+    return { line, description, baseHeight: Math.max(42, 26 + description.length * 11) };
+  });
 
   const summaryRows = [
     ["Subtotal", money(input.invoice.subtotal)],
@@ -183,16 +175,48 @@ export async function downloadInvoicePdf(input: { invoice: JmbInvoice; lines: In
   ];
   const notes = input.invoice.notes?.trim();
   const notesLines = notes ? (doc.splitTextToSize(notes, contentWidth - 24) as string[]) : [];
-  const requiredHeight = 94 + (notesLines.length ? 42 + notesLines.length * 11 : 0);
-  if (y + requiredHeight > pageHeight - 55) {
-    doc.addPage();
-    drawContinuationHeader();
-    y = 82;
+  const rowsBaseHeight = preparedLines.reduce((total, line) => total + line.baseHeight, 0);
+  const summaryBaseHeight = 20 + summaryRows.length * 19 + 44;
+  const notesBaseHeight = notesLines.length ? 36 + notesLines.length * 11 : 0;
+  const footerTop = pageHeight - 50;
+  const availableHeight = footerTop - y;
+  const contentScale = Math.min(
+    1,
+    availableHeight / Math.max(1, rowsBaseHeight + summaryBaseHeight + notesBaseHeight),
+  );
+
+  for (const { line, description, baseHeight } of preparedLines) {
+    const rowHeight = baseHeight * contentScale;
+    setDraw(COLORS.border);
+    doc.line(margin, y + rowHeight, pageWidth - margin, y + rowHeight);
+    setText(COLORS.ink);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(10 * contentScale);
+    doc.text(description, margin + 12, y + 18 * contentScale);
+    setText(COLORS.muted);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8 * contentScale);
+    doc.text(
+      `${line.line_type}  •  ${money(line.unit_price)} each`,
+      margin + 12,
+      y + rowHeight - 9 * contentScale,
+    );
+    setText(COLORS.ink);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10 * contentScale);
+    doc.text(String(line.quantity), pageWidth - margin - 112, y + 18 * contentScale, {
+      align: "center",
+    });
+    doc.setFont("helvetica", "bold");
+    doc.text(money(line.line_total), pageWidth - margin - 12, y + 18 * contentScale, {
+      align: "right",
+    });
+    y += rowHeight;
   }
 
-  y += 20;
+  y += 20 * contentScale;
   const summaryX = pageWidth - margin - 220;
-  doc.setFontSize(10);
+  doc.setFontSize(10 * contentScale);
   for (const [label, value] of summaryRows) {
     setText(COLORS.muted);
     doc.setFont("helvetica", "normal");
@@ -200,43 +224,52 @@ export async function downloadInvoicePdf(input: { invoice: JmbInvoice; lines: In
     setText(COLORS.ink);
     doc.setFont("helvetica", "bold");
     doc.text(value, pageWidth - margin, y, { align: "right" });
-    y += 19;
+    y += 19 * contentScale;
   }
   setDraw(COLORS.border);
   doc.line(summaryX, y, pageWidth - margin, y);
-  y += 22;
+  y += 22 * contentScale;
   setText(COLORS.ink);
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(15);
+  doc.setFontSize(15 * contentScale);
   doc.text("Total", summaryX, y);
   doc.text(money(input.invoice.total), pageWidth - margin, y, { align: "right" });
 
   if (notesLines.length) {
-    y += 28;
-    const noteHeight = 27 + notesLines.length * 11;
+    y += 28 * contentScale;
+    const noteHeight = (27 + notesLines.length * 11) * contentScale;
     setFill(COLORS.pale);
     doc.roundedRect(margin, y, contentWidth, noteHeight, 8, 8, "F");
     setText(COLORS.ink);
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(9);
-    doc.text("NOTES", margin + 12, y + 17);
+    doc.setFontSize(9 * contentScale);
+    doc.text("NOTES", margin + 12, y + 17 * contentScale);
     setText(COLORS.muted);
     doc.setFont("helvetica", "normal");
-    doc.text(notesLines, margin + 12, y + 32);
+    doc.text(notesLines, margin + 12, y + 32 * contentScale);
   }
 
-  const pages = doc.getNumberOfPages();
-  for (let page = 1; page <= pages; page += 1) {
-    doc.setPage(page);
-    setText(COLORS.muted);
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(8);
-    doc.text("Thank you for supporting JMB 2 Creations.", margin, pageHeight - 28);
-    doc.text(`Page ${page} of ${pages}`, pageWidth - margin, pageHeight - 28, { align: "right" });
-  }
+  setText(COLORS.muted);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8);
+  doc.text("Thank you for supporting JMB 2 Creations.", pageWidth / 2, pageHeight - 28, {
+    align: "center",
+  });
 
   const customer = safeFilePart(input.invoice.customer_name) || "Customer";
   const filename = `${code}-${customer}.pdf`;
-  triggerPdfDownload(doc.output("blob"), filename);
+  return { bytes: doc.output("arraybuffer"), filename };
+}
+
+export async function createInvoicePdfBytes(input: {
+  invoice: JmbInvoice;
+  lines: InvoicePdfLine[];
+}) {
+  return await buildInvoicePdf(input);
+}
+
+export async function downloadInvoicePdf(input: { invoice: JmbInvoice; lines: InvoicePdfLine[] }) {
+  const { bytes, filename } = await buildInvoicePdf(input);
+  triggerPdfDownload(new Blob([bytes], { type: "application/pdf" }), filename);
   return filename;
 }
