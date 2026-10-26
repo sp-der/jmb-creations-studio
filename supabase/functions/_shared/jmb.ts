@@ -1,4 +1,4 @@
-import { createClient } from "npm:@supabase/supabase-js@2";
+import { createClient } from "npm:@supabase/supabase-js@2.110.8";
 
 export const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -7,7 +7,7 @@ export const corsHeaders = {
 };
 
 export function json(data: unknown, status = 200) {
-  return new Response(JSON.stringify(data), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  return new Response(JSON.stringify(data), { status, headers: { ...corsHeaders, "Content-Type": "application/json", "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" } });
 }
 
 export function adminClient() {
@@ -74,7 +74,7 @@ export function emailButton(label: string, href: string) {
 export function emailShell(title: string, body: string, eyebrow = "JMB 2 CREATIONS") {
   const logo = `${siteUrl()}/logo.png`;
   return `<!doctype html>
-<html><head><meta name="viewport" content="width=device-width,initial-scale=1"><meta charset="utf-8"></head>
+<html lang="en"><head><meta name="viewport" content="width=device-width,initial-scale=1"><meta charset="utf-8"></head>
 <body style="margin:0;background:#fbf6fb;font-family:Arial,Helvetica,sans-serif;color:#211a38">
   <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#fbf6fb;padding:24px 10px"><tr><td align="center">
     <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:660px;background:#ffffff;border:1px solid #eaddea;border-radius:28px;overflow:hidden;box-shadow:0 12px 38px rgba(82,62,118,.08)">

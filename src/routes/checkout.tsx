@@ -12,12 +12,13 @@ import {
   type CustomerSession,
 } from "@/lib/customer-auth";
 import { createOrder, fetchShippingRates, type FulfillmentMethod, type ShippingAddress, type ShippingRate } from "@/lib/orders";
-import { rememberGuestPaymentToken } from "@/lib/payments";
+import { rememberGuestPaymentToken, startSquareCheckout } from "@/lib/payments";
 
 export const Route = createFileRoute("/checkout")({ component: CheckoutPage });
 
 function CheckoutPage() {
-  const { items, subtotal, clearCart } = useCart();
+  const { items, subtotal } = useCart();
+  const [recovery, setRecovery] = useState<{ id: string; token: string } | null>(null);
   const [session, setSession] = useState<CustomerSession | null>(null);
   const [fulfillment, setFulfillment] = useState<FulfillmentMethod>("Shipping");
   const [firstName, setFirstName] = useState("");
@@ -40,14 +41,15 @@ function CheckoutPage() {
   const selectedRate = rates.find((rate) => rate.id === selectedRateId) ?? null;
 
   useEffect(() => {
+    try { setRecovery(JSON.parse(sessionStorage.getItem("jmb-pending-checkout") || "null")); } catch { /* Ignore corrupt recovery data. */ }
     getValidCustomerSession()
       .then((next) => {
         setSession(next);
         if (next?.user) {
           setEmail(next.user.email ?? "");
           const meta = next.user.user_metadata ?? {};
-          if (typeof meta.first_name === "string") setFirstName(meta.first_name);
-          if (typeof meta.last_name === "string") setLastName(meta.last_name);
+          if (typeof meta["first_name"] === "string") setFirstName(meta["first_name"]);
+          if (typeof meta["last_name"] === "string") setLastName(meta["last_name"]);
         }
       })
       .catch(() => setSession(null));
@@ -65,9 +67,11 @@ function CheckoutPage() {
     country: "US",
   });
 
+  useEffect(() => { setRates([]); setSelectedRateId(""); }, [address1, address2, city, state, postalCode]);
+
   async function getRates() {
     if (!firstName.trim() || !lastName.trim() || !email.trim() || !address1.trim() || !city.trim() || !state.trim() || !postalCode.trim()) {
-      return toast.error("Complete the shipping address first.");
+      toast.error("Complete the shipping address first."); return;
     }
     setLoadingRates(true);
     try {
@@ -83,9 +87,9 @@ function CheckoutPage() {
   }
 
   async function createAccountHere() {
-    if (!firstName.trim() || !lastName.trim() || !email.trim()) return toast.error("Enter your name and email first.");
-    if (accountPassword.length < 6) return toast.error("Password must be at least 6 characters.");
-    if (accountPassword !== accountConfirm) return toast.error("Passwords do not match.");
+    if (!firstName.trim() || !lastName.trim() || !email.trim()) { toast.error("Enter your name and email first."); return; }
+    if (accountPassword.length < 6) { toast.error("Password must be at least 6 characters."); return; }
+    if (accountPassword !== accountConfirm) { toast.error("Passwords do not match."); return; }
     setAccountBusy(true);
     try {
       const result = await customerSignUp(email.trim(), accountPassword, rememberAccount, {
@@ -109,8 +113,8 @@ function CheckoutPage() {
   async function place(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!items.length) return;
-    if (!firstName.trim() || !lastName.trim() || !email.trim()) return toast.error("First name, last name and email are required.");
-    if (fulfillment === "Shipping" && !selectedRate) return toast.error("Calculate and choose a shipping option.");
+    if (!firstName.trim() || !lastName.trim() || !email.trim()) { toast.error("First name, last name and email are required."); return; }
+    if (fulfillment === "Shipping" && !selectedRate) { toast.error("Calculate and choose a shipping option."); return; }
     setPlacing(true);
     try {
       const result = await createOrder({
@@ -124,12 +128,17 @@ function CheckoutPage() {
         rateId: selectedRate?.id,
       });
       rememberGuestPaymentToken(result.order.id, result.guestToken);
-      clearCart();
-      toast.success("Order created", { description: "Choose how you want to pay on the next screen." });
+      sessionStorage.setItem("jmb-pending-checkout", JSON.stringify({ id: result.order.id, token: result.guestToken || "", cart: JSON.stringify(items) }));
       const paymentUrl = result.guestToken
         ? `/payment/${result.order.id}?token=${encodeURIComponent(result.guestToken)}`
         : `/payment/${result.order.id}`;
-      window.location.assign(paymentUrl);
+      try {
+        const square = await startSquareCheckout(result.order.id, result.guestToken);
+        window.location.assign(square.url);
+      } catch {
+        // Keep the cart and private recovery link when Square is interrupted.
+        window.location.assign(paymentUrl);
+      }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not create order.");
     } finally {
@@ -147,7 +156,7 @@ function CheckoutPage() {
     );
   }
 
-  const shipping = selectedRate?.rate ?? 0;
+  const shipping = fulfillment === "Local Pickup" ? 0 : selectedRate?.rate ?? 0;
   const total = subtotal + shipping;
 
   return (
@@ -162,6 +171,7 @@ function CheckoutPage() {
             </p>
           </div>
 
+          {recovery && <p className="rounded-2xl border border-primary/20 bg-secondary/25 p-4 text-sm">You have an unfinished checkout. <a className="font-bold text-primary underline" href={`/payment/${recovery.id}${recovery.token ? `?token=${encodeURIComponent(recovery.token)}` : ""}`}>Resume secure payment</a></p>}
           <div className="rounded-[1.75rem] border border-border bg-card p-6 shadow-soft">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-3"><UserRound className="text-primary" /><h2 className="text-xl font-bold">Customer</h2></div>
@@ -231,7 +241,7 @@ function CheckoutPage() {
           </div>
 
           <div className="rounded-2xl border border-primary/15 bg-secondary/25 p-4 text-sm text-muted-foreground">
-            <strong className="text-foreground">Payment comes next.</strong> After this order is created, choose Square for secure online checkout or Zelle, PayPal, or Venmo for manual payment verification.
+            <strong className="text-foreground">Payment is required.</strong> Continue to secure Square checkout. Your order is confirmed only after Square verifies payment, including local pickup orders.
           </div>
         </section>
 
@@ -251,7 +261,7 @@ function CheckoutPage() {
             <div className="flex justify-between border-t border-border pt-3 text-lg"><span>Total</span><strong>{formatPrice(total)}</strong></div>
           </div>
           <Button type="submit" variant="hero" className="mt-5 w-full" disabled={placing}>
-            {placing ? <Loader2 className="animate-spin" /> : <CreditCard />} {placing ? "Creating Order..." : "Continue to Payment"}
+            {placing ? <Loader2 className="animate-spin" /> : <CreditCard />} {placing ? "Preparing Checkout..." : "Pay Securely with Square"}
           </Button>
         </aside>
       </form>
