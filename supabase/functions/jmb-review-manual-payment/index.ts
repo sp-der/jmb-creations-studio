@@ -26,6 +26,8 @@ Deno.serve(async (req) => {
           payment_submitted_at: null,
         };
 
+    if (order.checkout_version >= 2) return json({ error: "Storefront checkout requires verified Square payment." }, 409);
+
     const { data: updated, error: updateError } = await client.from("jmb_orders").update(patch).eq("id", orderId).select("*").single();
     if (updateError) throw new Error(updateError.message);
 

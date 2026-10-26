@@ -1,0 +1,21 @@
+project_id = "jmb-creations-studio"
+
+# Guest/order-token and worker access are validated inside these handlers.
+[functions.jmb-create-order]
+verify_jwt = false
+[functions.jmb-create-square-checkout]
+verify_jwt = false
+[functions.jmb-guest-order-access]
+verify_jwt = false
+[functions.jmb-order-communications]
+verify_jwt = false
+[functions.jmb-cancel-checkout]
+verify_jwt = false
+[functions.jmb-square-webhook]
+verify_jwt = false
+[functions.jmb-square-webhook-production]
+verify_jwt = false
+[functions.jmb-manual-payment-sent]
+verify_jwt = false
+[functions.jmb-review-manual-payment]
+verify_jwt = false

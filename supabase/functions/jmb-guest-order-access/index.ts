@@ -1,9 +1,9 @@
-import { adminClient, corsHeaders, json, sha256Hex } from "../_shared/jmb.ts";
+import { adminClient, corsHeaders, json } from "../_shared/jmb.ts";
 
 type Input = { orderId?: string; token?: string };
 
 function safeOrder(order: Record<string, unknown>) {
-  const { guest_token_hash: _guestTokenHash, ...safe } = order;
+  const { guest_token_hash: _guestTokenHash, checkout_fingerprint: _fingerprint, ...safe } = order;
   return safe;
 }
 
@@ -22,8 +22,9 @@ Deno.serve(async (req) => {
     if (!order) return json({ error: "Private order not found." }, 404);
     if (!order.guest_token_hash) return json({ error: "This order is attached to a customer account." }, 403);
 
-    const suppliedHash = await sha256Hex(token);
-    if (suppliedHash !== order.guest_token_hash) return json({ error: "This private order link is invalid." }, 403);
+    const { data: valid, error: tokenError } = await client.rpc("jmb_valid_guest_order", { p_order_id: orderId, p_token: token });
+    if (tokenError) throw new Error("Guest authorization unavailable.");
+    if (valid !== true) return json({ error: "This private order link is invalid." }, 403);
 
     const { data: items, error: itemsError } = await client.from("jmb_order_items").select("*").eq("order_id", orderId).order("created_at", { ascending: true });
     if (itemsError) throw new Error(itemsError.message);

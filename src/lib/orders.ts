@@ -3,7 +3,7 @@ import { getAdminAuthHeaders } from "@/lib/live-catalog";
 import type { CartItem } from "@/lib/cart";
 
 export type FulfillmentMethod = "Shipping" | "Local Pickup";
-export type OrderStatus = "Order Received" | "Payment Confirmed" | "In Production" | "Ready for Pickup" | "Shipped" | "Completed" | "Cancelled";
+export type OrderStatus = "Pending Checkout" | "Order Received" | "Payment Confirmed" | "In Production" | "Ready for Pickup" | "Shipped" | "Completed" | "Cancelled";
 
 export type JmbOrder = {
   id: string;
@@ -37,6 +37,9 @@ export type JmbOrder = {
   tracking_code: string | null;
   tracking_carrier: string | null;
   tracking_status: string | null;
+  checkout_version: number;
+  payment_confirmed_at: string | null;
+  admin_seen_at: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -121,19 +124,27 @@ export async function createOrder(input: {
   lastName: string;
   email: string;
   fulfillment: FulfillmentMethod;
-  address?: ShippingAddress;
+  address?: ShippingAddress | undefined;
   items: CartItem[];
-  shipmentId?: string;
-  rateId?: string;
+  shipmentId?: string | undefined;
+  rateId?: string | undefined;
 }) {
   const url = getSupabaseUrl();
   if (!url) throw new Error("Supabase is not configured.");
+  const payload = { ...input, items: input.items.map(item => ({ catalogItemId: item.productId, quantity: item.quantity })) };
+  const fingerprint = JSON.stringify(payload);
+  const saved = sessionStorage.getItem("jmb-checkout-attempt");
+  let attempt: { fingerprint: string; checkoutKey: string; guestToken: string } | null = null;
+  try { attempt = saved ? JSON.parse(saved) : null; } catch { /* Start a fresh attempt. */ }
+  if (attempt?.fingerprint !== fingerprint) {
+    attempt = { fingerprint, checkoutKey: crypto.randomUUID(), guestToken: Array.from(crypto.getRandomValues(new Uint8Array(32)), b => b.toString(16).padStart(2, "0")).join("") };
+    sessionStorage.setItem("jmb-checkout-attempt", JSON.stringify(attempt));
+  }
   const response = await fetch(`${url}/functions/v1/jmb-create-order`, {
     method: "POST",
     headers: await functionHeaders(Boolean(getCustomerSession())),
     body: JSON.stringify({
-      ...input,
-      items: input.items.map((item) => ({ catalogItemId: item.productId, quantity: item.quantity })),
+      ...payload, checkoutKey: attempt.checkoutKey, guestToken: attempt.guestToken,
     }),
   });
   if (!response.ok) throw new Error(await parseError(response));
@@ -185,6 +196,7 @@ export async function updateAdminOrder(orderId: string, patch: Partial<Pick<JmbO
   });
   if (!response.ok) throw new Error(await parseError(response));
   const rows = (await response.json()) as JmbOrder[];
+  if (!rows[0]) throw new Error("Order update returned no record.");
   return rows[0];
 }
 
@@ -237,4 +249,10 @@ export async function reviewManualPayment(orderId: string, approved: boolean) {
   });
   if (!response.ok) throw new Error(await parseError(response));
   return await response.json() as { order: JmbOrder; emailSent?: boolean };
+}
+
+export async function cancelPendingCheckout(orderId: string) {
+  const response = await fetch(`${getSupabaseUrl()}/functions/v1/jmb-cancel-checkout`, { method: "POST", headers: getAdminAuthHeaders(), body: JSON.stringify({ orderId }) });
+  if (!response.ok) throw new Error(await parseError(response));
+  return await response.json() as { order: JmbOrder };
 }

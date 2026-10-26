@@ -14,6 +14,8 @@ Deno.serve(async (req) => {
     const { data: order, error: orderError } = await client.from("jmb_orders").select("*").eq("id", orderId).maybeSingle();
     if (orderError || !order) return json({ error: "Order not found." }, 404);
 
+    if (order.checkout_version >= 2) return json({ error: "Storefront checkout requires verified Square payment." }, 409);
+
     const user = await getOptionalUser(req);
     let allowed = Boolean(user && order.customer_user_id && user.id === order.customer_user_id);
     if (!allowed && input.guestToken && order.guest_token_hash) {
