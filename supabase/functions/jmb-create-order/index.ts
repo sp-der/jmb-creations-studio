@@ -18,6 +18,12 @@ Deno.serve(async (req) => {
     const raw = await req.text();
     if (raw.length > 48000) return json({ error: "Checkout request too large." }, 413);
     const input = JSON.parse(raw) as Input;
+    // Existing open browser tabs can finish securely during the frontend rollout.
+    // Modern callers always supply stable request IDs and recovery tokens.
+    if (!input.checkoutKey && !input.guestToken) {
+      input.checkoutKey = crypto.randomUUID();
+      input.guestToken = Array.from(crypto.getRandomValues(new Uint8Array(32)), b => b.toString(16).padStart(2, "0")).join("");
+    }
     if (!input.checkoutKey || !UUID.test(input.checkoutKey)) return json({ error: "Checkout request ID is required." }, 400);
     if (!input.guestToken || !/^[0-9a-f]{64}$/.test(input.guestToken)) return json({ error: "Checkout recovery token is required." }, 400);
     const firstName = String(input.firstName || "").trim(); const lastName = String(input.lastName || "").trim(); let email = String(input.email || "").trim().toLowerCase();

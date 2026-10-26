@@ -1,7 +1,7 @@
 import { adminClient, corsHeaders, getOptionalUser, json, requireAdmin } from "../_shared/jmb.ts";
 import { orderAccess } from "../_shared/order-access.ts";
 import { messageText, UUID } from "../_shared/order-logic.ts";
-import { drainNotifications } from "../_shared/order-notifications.ts";
+import { businessEmail, drainNotifications } from "../_shared/order-notifications.ts";
 const fields = "id,order_id,sender,sender_name,body,created_at,admin_seen_at,customer_seen_at";
 export async function handler(req: Request): Promise<Response> {
   const cors = {
@@ -27,6 +27,74 @@ export async function handler(req: Request): Promise<Response> {
         p_key: req.headers.get("x-jmb-worker") || "",
       });
       if (result.error || result.data !== true) return json({ error: "Unauthorized." }, 401);
+      if (body.health === true) {
+        const from = Deno.env.get("JMB_FROM_EMAIL") || "";
+        const notification = await businessEmail(client).catch(() => "");
+        const configuration = {
+          sender: from,
+          notificationEmail: notification,
+          resendConfigured: Boolean(Deno.env.get("RESEND_API_KEY")),
+          squareConfigured: Boolean(
+            Deno.env.get("SQUARE_ACCESS_TOKEN") && Deno.env.get("SQUARE_LOCATION_ID"),
+          ),
+          squareEnvironment: Deno.env.get("SQUARE_ENVIRONMENT") || "sandbox",
+          webhookConfigured: Boolean(
+            Deno.env.get("SQUARE_WEBHOOK_SIGNATURE_KEY_PRODUCTION") &&
+            Deno.env.get("SQUARE_WEBHOOK_NOTIFICATION_URL_PRODUCTION"),
+          ),
+          siteUrl: Deno.env.get("SITE_URL") || "",
+          timezone: Deno.env.get("JMB_TIMEZONE") || "America/Los_Angeles",
+        };
+        let emailTest: unknown = null;
+        if (body.testDelivery === true && from && Deno.env.get("RESEND_API_KEY")) {
+          // Only Resend's controlled delivery sink; never a customer or the business inbox.
+          const response = await fetch("https://api.resend.com/emails", {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${Deno.env.get("RESEND_API_KEY")}`,
+              "Content-Type": "application/json",
+              "Idempotency-Key": "jmb-deployment-sink-20261026",
+            },
+            body: JSON.stringify({
+              from,
+              to: ["delivered@resend.dev"],
+              subject: "JMB deployment verification",
+              text: "Controlled delivery verification. No customer information.",
+            }),
+            signal: AbortSignal.timeout(10000),
+          });
+          const result = await response.json();
+          emailTest = {
+            accepted: response.ok,
+            status: response.status,
+            providerId: response.ok ? result.id : null,
+          };
+        }
+        let squareTest: unknown = null;
+        if (body.checkSquare === true && configuration.squareConfigured) {
+          const base =
+            configuration.squareEnvironment.toLowerCase() === "production"
+              ? "https://connect.squareup.com"
+              : "https://connect.squareupsandbox.com";
+          const response = await fetch(
+            `${base}/v2/locations/${encodeURIComponent(Deno.env.get("SQUARE_LOCATION_ID")!)}`,
+            {
+              headers: {
+                Authorization: `Bearer ${Deno.env.get("SQUARE_ACCESS_TOKEN")}`,
+                "Square-Version": "2026-07-15",
+              },
+              signal: AbortSignal.timeout(10000),
+            },
+          );
+          const result = await response.json();
+          squareTest = {
+            authorized: response.ok,
+            status: response.status,
+            locationMatches: result.location?.id === Deno.env.get("SQUARE_LOCATION_ID"),
+          };
+        }
+        return json({ configuration, emailTest, squareTest });
+      }
       return json({ results: await drainNotifications(client) });
     }
     if (["unread", "retry"].includes(body.action)) {
@@ -179,4 +247,4 @@ export async function handler(req: Request): Promise<Response> {
     );
   }
 }
-if (import.meta.main) Deno.serve(handler);
+Deno.serve(handler);

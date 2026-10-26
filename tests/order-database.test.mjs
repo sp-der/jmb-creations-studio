@@ -52,7 +52,7 @@ test("checkout, payment, conversations, outbox, guest tokens and RLS", async (t)
       [custom.id],
     );
     let migration = await file(
-      "supabase/migrations/20261026194818_checkout_order_communications.sql",
+      "supabase/migrations/20261026230248_checkout_order_communications.sql",
     );
     migration = migration
       .replace("create extension if not exists pg_cron with schema pg_catalog;", "")

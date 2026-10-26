@@ -13,11 +13,13 @@ type Job = {
   payload: Record<string, unknown> | null;
   first_attempt_at: string | null;
 };
-function businessEmail(): string {
+export async function businessEmail(client: DB): Promise<string> {
   // Reuse deployed configuration only. Never substitute an invented destination.
   const email = Deno.env.get("JMB_NOTIFICATION_EMAIL") || Deno.env.get("SUPPORT_EMAIL");
-  if (!email) throw new Error("Business notification email is not configured.");
-  return email;
+  if (email) return email;
+  const { data: settings, error } = await client.from("jmb_store_settings").select("notification_email").eq("id", 1).maybeSingle();
+  if (error || !settings?.notification_email) throw new Error("Business notification email is not configured.");
+  return settings.notification_email;
 }
 async function buildPayload(client: DB, job: Job) {
   const from = Deno.env.get("JMB_FROM_EMAIL");
@@ -73,16 +75,17 @@ async function buildPayload(client: DB, job: Job) {
     body = `<p>${e(message.sender_name)} sent a message about <strong>${e(code)}</strong>.</p><div style="white-space:pre-wrap;overflow-wrap:anywhere;background:#f5effb;padding:20px;border-radius:16px">${e(message.body)}</div>`;
     text = `${subject}\n\n${message.body}`;
   }
+  const notificationEmail = await businessEmail(client);
   return {
     from,
-    to: [toAdmin ? businessEmail() : order.customer_email],
+    to: [toAdmin ? notificationEmail : order.customer_email],
     subject,
     html: emailShell(
       e(subject),
       body + emailButton(toAdmin ? "Open Order & Reply" : "View Order & Reply", e(link)),
     ),
     text: `${text}\n\n${link}`,
-    reply_to: toAdmin ? order.customer_email : businessEmail(),
+    reply_to: toAdmin ? order.customer_email : notificationEmail,
   };
 }
 export async function drainNotifications(client: DB, orderId: string | null = null) {

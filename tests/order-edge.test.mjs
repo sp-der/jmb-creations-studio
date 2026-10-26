@@ -22,7 +22,7 @@ const env = new Map(
     JMB_NOTIFICATION_EMAIL: "business@example.test",
   }),
 );
-globalThis.Deno = { env: { get: (key) => env.get(key) } };
+globalThis.Deno = { serve: () => {}, env: { get: (key) => env.get(key) } };
 const { handler } = await import("../supabase/functions/jmb-order-communications/index.ts");
 const { squareWebhook } = await import("../supabase/functions/_shared/square-webhook.ts");
 const { drainNotifications } = await import("../supabase/functions/_shared/order-notifications.ts");

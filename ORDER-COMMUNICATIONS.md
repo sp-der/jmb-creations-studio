@@ -1,70 +1,47 @@
-# Checkout and order communications upgrade
+# JMB checkout and order communications
 
-## Release status
+## Release evidence — October 26, 2026
 
-Implemented and tested locally; **not deployed to production**. Live Supabase schema, deployed functions, environment configuration, logs and security advisories could not be inspected: the connected account lists project `jtrgjlnuoduhxwfqsgap` (JMB2C), but project-level operations return `You do not have permission to perform this action`. Do not merge the frontend into the production branch before deploying its database and function dependencies.
+JMB2C project `jtrgjlnuoduhxwfqsgap` was inspected using the Sp-der connection. Its original orders/items schema and storefront RPC match repository phases 4/9. Migrations `20261026230248_checkout_order_communications` and `20261026232657_configure_business_notification_email` are applied. Repository filenames match actual database migration versions so the Supabase GitHub integration does not replay them.
 
-The existing production homepage returned HTTP 200. The repository builds a Cloudflare Worker using Nitro; no Cloudflare management integration was found. Cloudflare response headers alone do not identify the deployed Worker/account or prove its current commit. The connected Resend account lists verified PNP and Furniture3R domains, but no JMB domain. JMB may use a different Resend account. Neither sender configuration nor live delivery was verified. No real charges, customer test messages, historical notifications or deletions were performed. The three reported same-name orders could not be investigated without order-record access.
+All nine changed/new functions are deployed and ACTIVE: jmb-create-order, jmb-create-square-checkout, jmb-guest-order-access, jmb-manual-payment-sent, jmb-review-manual-payment, both existing Square webhook routes, jmb-order-communications and jmb-cancel-checkout. The existing Cloudflare GitHub integration builds service jmb-creations-studio from main. Check the merged commit's Cloudflare build check and production pages for current frontend rollout evidence.
 
-## Behavior and transition
+Runtime health confirms production Square credentials authorize the configured location, production webhook secrets exist, SITE_URL is correct, and JMB_FROM_EMAIL is JMB 2 Creations <support@jmb2creations.com>. The otrservicesie Resend account verifies jmb2creations.com for sending. A controlled message to delivered@resend.dev was accepted and reported delivered (provider ID 01a17a74-82a0-7202-9353-805fadeb0390). No real charges or customer test emails were sent.
 
-New storefront records have `checkout_version=2`, status `Pending Checkout`, and unpaid payment status. Existing rows retain version 1, their original timestamps/status/payment records and private links. No historical backfill or email blast occurs. The old order-creation RPC is retired from client/service-role use; the replacement requires an idempotency key. Retry of identical checkout data returns the same checkout; changed data with the same key is rejected.
+Notification environment settings were empty. The user selected the existing JMB Yahoo administrator address; it is configured in RLS-protected jmb_store_settings.notification_email. Explicit JMB_NOTIFICATION_EMAIL or SUPPORT_EMAIL settings take precedence; otherwise the worker reads that protected setting. Health verified the selected recipient resolves correctly. It is not invented or hardcoded in application code. The configured Chino Hills, California origin confirms Pacific time is appropriate.
 
-Local Pickup shipping is forced to zero in SQL and the server. Catalog prices/stock come from SQL; shipping prices are retrieved from Shippo, with destination region checked. Checkout goes straight to Square. Manual payment methods are absent from the payment UI and blocked server-side for version 2. Historical manual reviews and independent custom invoicing remain available. A historical already-submitted manual payment displays a warning against paying twice.
+## Payments and inventory
 
-A redirect, success URL or browser request cannot mark an order paid. Both existing webhook routes verify Square's signature over the exact URL and raw body, then retrieve the payment from Square. Completed status, payment/order ID, configured location, USD currency and exact total are required. Payment recording locks the order, preserves its first confirmation time and atomically queues business/customer emails once. Duplicate webhook delivery cannot queue a second pair. Additional payments or mismatches require reconciliation instead of silently replacing a payment ID. Failed, cancelled and abandoned payment attempts leave a recoverable unpaid checkout with no paid-order emails and no fulfillment access.
+New orders remain Pending Checkout/Unpaid until a signed Square event and retrieved payment record verify completed status, exact order/payment ID, location, USD and amount. Redirects never establish payment. Payment recording and business/customer outbox entries are transactional and idempotent. Unpaid fulfillment is blocked. Local Pickup is forced to zero shipping; merchandise still requires Square payment.
 
-The cart is preserved through checkout interruption, and the same browser keeps a recovery link and stable request key. It clears only after verified payment and only if the cart still matches the checkout. Pending checkouts retain the existing stock-reservation behavior. Admins can explicitly close a version-2 unpaid checkout: Square checkout creation/closure is serialized, the Square link is cancelled and its order state verified, then stock is released transactionally once. Unknown payment activity or provider failures keep stock reserved for review. There is **no automatic abandoned-checkout expiration** or historical cleanup. A paid checkout never releases stock through this action.
+Modern requests use stable browser checkout keys/tokens. Older open tabs get server-generated credentials during rollout but still create only pending checkouts. The cart survives interrupted payments and clears after verified payment only if it still matches that checkout. Existing Square links are reused. New storefront manual payments are blocked; historical records, manual review and independent invoicing remain intact.
 
-Admin order lists separate paid orders from unpaid records, show new-order/message badges, date/time, account/guest identity, payment/fulfillment state, customer email and account reference. Server guards prevent unpaid production/fulfillment transitions. Direct browser updates are limited to operational status/tracking fields; Square payment fields are server-managed.
+Pending checkouts reserve stock. Admin cancellation serializes against checkout creation, confirms Square closure, then releases stock once. Unknown payment activity or provider failures retain reservations for reconciliation. There is no automatic abandoned-checkout expiration or historical cleanup.
 
-## Conversations, email and authorization
+## Communications and security
 
-One persistent thread per order appears in the admin order details, Customer Inbox, customer account order details and guest order portal. Customer Inbox separates Order Conversations from the unchanged Custom Requests implementation.
+Admin orders show paid/pending filters, creation/payment timestamps, payment/fulfillment states, account/guest identity, customer email/account reference, unread alerts, order chat and Email Customer. Customer Inbox separates Order Conversations from unchanged Custom Requests. Both account and guest portals include chat.
 
-Every order-chat request validates a live Auth user and database admin membership, account ownership, or an order-specific guest token. User-editable metadata and client-supplied sender names/roles/recipients are never used for authorization. Guest access works even when the browser has an unrelated signed-in customer account. Original guest hashes are preserved; supplementary notification tokens are encrypted using pgcrypto with a Vault-held key and are valid for only the corresponding guest order. Tokens and private payloads are not exposed through new public tables/RPCs. Private pages suppress referrer leakage.
+Every request validates live Auth and database admin membership, account ownership or an order-specific guest token. Client sender names/roles/recipients are ignored. Original guest hashes remain valid; encrypted supplemental tokens support notification links. Private pages suppress Referer leakage.
 
-Messages and notification jobs commit together. Per-order request IDs deduplicate retries and reject changed body/sender reuse; row locking enforces 20 messages per sender type per minute and 4,000-character text limits. The browser retains a failed send's request ID until the body changes. Threads poll every five seconds while visible; inbox badges poll every ten seconds. Only fetched messages are marked read. Thread reads are paginated.
+Messages and outbox entries commit atomically. Request IDs deduplicate retries; changed-body/sender reuse is rejected. Messages are capped at 4,000 characters and 20 per sender/order/minute. Threads poll every five visible seconds, inbox badges every ten seconds, and only fetched messages are marked read. Admin emails target the stored order address, include its reference and are capped at 30 per admin/hour with deduplication and delivery records.
 
-Email Customer composes a subject and message against the order's stored customer email, server-checks administrator access, includes the order reference, caps sending at 30 composed emails per admin/hour, deduplicates retries and records delivery results. `mailto:` remains available.
+The outbox freezes payloads, leases jobs, retries with backoff, uses stable Resend idempotency keys, records provider acceptance and sanitized errors, and stops ambiguous delivery at 23 hours before Resend's 24-hour key expiry. Vault-authenticated minute cron is active. New chat/outbox/token tables have RLS and no public grants; privileged RPCs are service-role-only. Worker-authenticated health exposes no credentials and email tests target only Resend's sink. “Sent” means provider acceptance, not universal inbox delivery.
 
-A service-role-only outbox stores leases, payloads, attempts, next retry time, provider IDs and sanitized errors. The worker freezes payloads before attempting delivery and sends `jmb-order-<outbox-id>` Resend idempotency keys. Vault-authenticated cron drains due jobs every minute with all browsers closed. Five jobs per lease keep processing inside a two-minute lease. Transient failures back off; permanent errors and ambiguous deliveries older than 23 hours enter `needs_review`, before Resend's 24-hour key expiry. Do not reset those jobs without checking Resend. “Sent” means **accepted by Resend**, not verified inbox delivery. The admin delivery panel reflects that distinction. Provider error bodies and message contents are not logged.
+## Historical investigation
 
-## Supabase changes
+All five original orders remain. The three repeated-name orders (numbers 3, 4 and 5) are Unpaid despite In Production status, while their prior pre-payment thank-you emails appear delivered in Resend. This confirms premature confirmation in the old workflow. No original orders were deleted, charged, reclassified or historically notified. Original timestamps, payments and custom histories remain intact.
 
-Migration: `supabase/migrations/20261026194818_checkout_order_communications.sql` (created with Supabase CLI).
+## Verification and limitations
 
-- Additive checkout version/key/fingerprint, confirmation/read/closure/lease timestamps and stored Square URL; item stock-reservation flag.
-- Extend order status constraint with Pending Checkout; preserve historical values.
-- New `jmb_order_messages`, `jmb_notification_outbox` and private encrypted guest-token table, all with RLS and no anon/authenticated grants.
-- Server-only payment confirmation, guest validation/token, message, composed-email, outbox-claim, checkout-lock and stock-release RPCs.
-- Payment/outbox trigger, unpaid-fulfillment guard, restricted browser order updates.
-- Vault encryption/worker keys and minute cron job, using existing Supabase infrastructure.
+- 21 automated tests passed: real PostgreSQL/WASM/pgcrypto migration tests and mocked Edge/Square/Resend tests.
+- Production build, nine Edge Function type checks and targeted new-module lint passed. A second type check passed for rollout compatibility and health additions.
+- Mocked desktop/mobile Chromium checks passed for admin chat/email, both inbox categories, guest/account portals, mobile overflow, Square-only checkout, pickup and interrupted-payment recovery.
+- Live SQL in supabase/tests/order_communications.sql passed original/supplemental/swapped token checks, unpaid fulfillment blocking, duplicate payments/messages and private API grants. Fixtures and queued notifications rolled back.
+- Runtime health returned HTTP 200, confirmed the notification recipient, verified production Square location access, and the Resend test sink reports delivered.
+- Existing full-project checks are not green: TypeScript 77 baseline -> 65 initial implementation errors, no new diagnostic signatures; lint 1806 baseline -> 1790 initial implementation errors.
+- The execution environment became unavailable during rollout. Provider APIs remained available. The final small protected-recipient fallback was accepted by the Supabase bundler and verified live; local checks were not rerun after that adjustment.
+- Full sandbox card-payment journeys and authenticated production browser sessions were not exercised. No customer was used as a test subject.
+- Security advisors report expected informational RLS-with-no-policy findings for service-only tables. Existing mutable-search-path, legacy token-protected SECURITY DEFINER API and disabled leaked-password-protection warnings remain. See https://supabase.com/docs/guides/database/database-linter.
 
-Dependencies: existing phases 2/3/4/9 schemas, pgcrypto in `extensions`, Supabase Vault, pg_cron and pg_net. Live schema must be compared with repository definitions before applying. No migration or Edge Function was applied to the live project.
-
-## Deployment order once project access is restored
-
-1. Confirm the actual production Cloudflare project/branch and inspect live tables, constraints, functions, migrations, logs and security advisories. The repository's older schema files are not proof of the current live schema. Take the normal database backup/checkpoint.
-2. Verify existing secrets without printing values: `RESEND_API_KEY`, `JMB_FROM_EMAIL`, `JMB_NOTIFICATION_EMAIL` (fallback existing `SUPPORT_EMAIL`), `SITE_URL`, `SQUARE_ACCESS_TOKEN`, `SQUARE_LOCATION_ID`, `SQUARE_ENVIRONMENT`, both existing webhook signature/notification-URL pairs, and existing Shippo configuration. Do not invent a recipient or silently use Resend's test sender. Confirm the business timezone; frontend `VITE_JMB_TIMEZONE` and backend `JMB_TIMEZONE` currently default to `America/Los_Angeles` as an explicit, unverified assumption. Do not infer the timezone from Supabase's database region.
-3. Apply the reviewed migration through the existing migration workflow. Its Vault keys are generated inside SQL. The CLI supports `supabase functions deploy <names> --project-ref jtrgjlnuoduhxwfqsgap`; use `supabase/config.toml` to preserve internal auth for guest/webhook/worker routes.
-4. Deploy only these changed/new functions: `jmb-create-order`, `jmb-create-square-checkout`, `jmb-guest-order-access`, `jmb-manual-payment-sent`, `jmb-review-manual-payment`, `jmb-square-webhook`, `jmb-square-webhook-production`, `jmb-order-communications`, `jmb-cancel-checkout`. Include their `_shared` dependencies. Keep the existing webhook URLs. Confirm canonical return links target `https://jmb2creations.com` and Square environment/credentials match.
-5. Merge the tested branch into the established production branch and verify the actual Cloudflare build/deployment ID and active version. Coordinate the backend/frontend transition; old checkout requests fail closed while the new checkout is rolled out, rather than creating unpaid confirmed-looking orders.
-6. Run controlled Square sandbox/Resend sink tests and authorized admin/customer browser checks, test RLS with both original and supplemental guest tokens, verify cron/lease recovery, inspect security advisors and logs, and verify production screens after rollout. Never run live test payments with a real customer's card or send tests to real customer addresses.
-
-Keep additive schema/queue data if reverting the frontend. Reverting only the frontend is not a complete rollback: the old order RPC is deliberately retired. Do not roll back payment guards or resurrect old unpaid-confirmation behavior to hide a deployment failure. Coordinate any rollback across backend and frontend.
-
-## Verification
-
-`npm ci` installs pinned test dependencies; production dependencies are unchanged. Node 24+ is required for the test runner's native TypeScript import/hook support.
-
-- `npm run test:orders`: real PostgreSQL/WASM (PGlite + pgcrypto) schema/SQL tests and mocked Edge handler/Square/Resend tests. Only hosted Auth/Vault/Cron/pg_net adapters are stubbed; application migration SQL runs unchanged except the two unavailable hosted extension-install statements. These tests do not prove hosted cron execution, Vault integration or live provider delivery.
-- `npx deno check --node-modules-dir=manual` against all nine changed function entrypoints: passes with pinned SDK installed locally. Same entrypoints were independently checked in an isolated Deno environment.
-- `npm run build`: passes, produces Cloudflare Worker output.
-- Full TypeScript baseline: 77 errors; after this change: 65 errors, **no new diagnostic signatures**. Existing catalog, invoice, router search-parameter and unrelated Custom Chats type issues remain. Full-project lint also has extensive existing failures; new modules pass targeted ESLint.
-- `tests/browser-orders.cjs`: local Chromium with intercepted external HTTP requests verifies admin chat/email, both inbox categories, guest/account portals, mobile overflow, Square-only UI, pickup and interrupted-payment cart recovery. Requires Playwright externally installed; optional `JMB_PLAYWRIGHT_MODULE`, `JMB_CHROMIUM_EXECUTABLE` and `JMB_CHROMIUM_ARGS_MODULE` select an existing browser runtime. All network services are mocked; the script never operates production.
-- Desktop/mobile screenshots inspected during testing. The browser tests caught and resolved duplicate sibling keys and mobile header overflow.
-
-Live Square payment/notification delivery, the three historical orders, deployed secrets, hosted security advisors and Cloudflare deployment/app logs remain unverified due the access blockers above.
-
-Primary references: PNP `ORDER-CHAT.md`, order-chat function/migrations; [Square webhook validation](https://developer.squareup.com/docs/webhooks/step3validate), [GetPayment](https://developer.squareup.com/reference/square/payments-api/get-payment), [DeletePaymentLink](https://developer.squareup.com/reference/square/checkout-api/delete-payment-link), [Supabase scheduled functions](https://supabase.com/docs/guides/functions/schedule-functions), [Resend idempotency](https://resend.com/docs/dashboard/emails/idempotency-keys).
+Preserve additive schema/data on rollback and coordinate backend/frontend together. Never reset needs_review deliveries or release reserved stock without provider reconciliation.
