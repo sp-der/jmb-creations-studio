@@ -59,6 +59,9 @@ test("checkout, payment, conversations, outbox, guest tokens and RLS", async (t)
       .replace("create extension if not exists pg_net with schema extensions;", "");
     await db.exec(migration);
     await db.exec(
+      await file("supabase/migrations/20261101221938_order_trash_and_chat_visibility.sql"),
+    );
+    await db.exec(
       "grant all on all tables in schema public to service_role; grant usage,select on all sequences in schema public to service_role;",
     );
     await t.test(
@@ -331,6 +334,166 @@ test("checkout, payment, conversations, outbox, guest tokens and RLS", async (t)
           /permission denied/,
         );
         await db.exec("reset role");
+      },
+    );
+    await t.test(
+      "Trash is admin-only, recoverable, preserves money/items/chat and suppresses operations",
+      async () => {
+        const target = await make(customer, "d".repeat(64));
+        await db.query("update jmb_orders set square_order_id='trash-square' where id=$1", [
+          target.id,
+        ]);
+        await confirm("trash-square");
+        await db.query("select jmb_order_send($1,$2,'admin',$3,'JMB','Preserved reply')", [
+          target.id,
+          crypto.randomUUID(),
+          admin,
+        ]);
+        await assert.rejects(
+          () => db.query("select jmb_order_trash($1,$2,false)", [target.id, stranger]),
+          /Admin required/,
+        );
+        const lease = await value("select jmb_order_operation_lock($1) id", [target.id]);
+        await assert.rejects(
+          () => db.query("select jmb_order_trash($1,$2,false)", [target.id, admin]),
+          /busy/,
+        );
+        await db.query(
+          "update jmb_orders set checkout_lease_until=null where id=$1 and checkout_lease_id=$2",
+          [target.id, lease.id],
+        );
+        const before = await value("select * from jmb_orders where id=$1", [target.id]);
+        await db.query("select jmb_order_trash($1,$2,false)", [target.id, admin]);
+        await db.query("select jmb_order_trash($1,$2,false)", [target.id, admin]);
+        const deleted = await value("select * from jmb_orders where id=$1", [target.id]);
+        assert.ok(deleted.deleted_at);
+        assert.equal(deleted.deleted_by, admin);
+        assert.equal(deleted.square_payment_id, before.square_payment_id);
+        assert.equal(deleted.payment_status, "Paid");
+        assert.equal(
+          (
+            await value(
+              "select count(*)::int n from jmb_orders where id=$1 and deleted_at is null",
+              [target.id],
+            )
+          ).n,
+          0,
+        );
+        assert.equal(
+          (
+            await value("select count(*)::int n from jmb_order_items where order_id=$1", [
+              target.id,
+            ])
+          ).n,
+          1,
+        );
+        assert.equal(
+          (
+            await value("select count(*)::int n from jmb_order_messages where order_id=$1", [
+              target.id,
+            ])
+          ).n,
+          1,
+        );
+        assert.equal(
+          (
+            await value(
+              "select count(*)::int n from jmb_notification_outbox where order_id=$1 and state='needs_review'",
+              [target.id],
+            )
+          ).n,
+          3,
+        );
+        await assert.rejects(
+          () => db.query("update jmb_orders set status='In Production' where id=$1", [target.id]),
+          /Restore/,
+        );
+        await assert.rejects(
+          () =>
+            db.query("select jmb_order_send($1,$2,'customer',null,'Customer','Blocked')", [
+              target.id,
+              crypto.randomUUID(),
+            ]),
+          /Restore/,
+        );
+        assert.equal(
+          (await db.query("select * from jmb_claim_notifications($1)", [target.id])).rows.length,
+          0,
+        );
+        await db.exec("set role authenticated");
+        await assert.rejects(
+          () => db.query("select jmb_order_trash($1,$2,true)", [target.id, admin]),
+          /permission denied/,
+        );
+        await assert.rejects(
+          () => db.query("update jmb_orders set deleted_at=null where id=$1", [target.id]),
+          /permission denied/,
+        );
+        await assert.rejects(
+          () => db.query("delete from jmb_orders where id=$1", [target.id]),
+          /permission denied/,
+        );
+        await db.exec("reset role");
+        await db.query("select jmb_order_trash($1,$2,true)", [target.id, admin]);
+        assert.equal(
+          (await value("select deleted_at from jmb_orders where id=$1", [target.id])).deleted_at,
+          null,
+        );
+        assert.equal(
+          (
+            await value(
+              "select count(*)::int n from jmb_private.order_trash_events where order_id=$1",
+              [target.id],
+            )
+          ).n,
+          2,
+        );
+        assert.equal(
+          (await db.query("select * from jmb_claim_notifications($1)", [target.id])).rows.length,
+          0,
+        );
+        // A late verified payment stays recorded on a deleted order without sending emails.
+        const late = await make(null, "e".repeat(64));
+        await db.query("update jmb_orders set square_order_id='late-square' where id=$1", [
+          late.id,
+        ]);
+        await db.query("select jmb_order_trash($1,$2,false)", [late.id, admin]);
+        await confirm("late-square");
+        assert.equal(
+          (await value("select payment_status from jmb_orders where id=$1", [late.id]))
+            .payment_status,
+          "Paid",
+        );
+        assert.equal(
+          (await value("select status from jmb_orders where id=$1", [late.id])).status,
+          "Pending Checkout",
+        );
+        assert.equal(
+          (
+            await value("select count(*)::int n from jmb_notification_outbox where order_id=$1", [
+              late.id,
+            ])
+          ).n,
+          0,
+        );
+        assert.equal(
+          (await db.query("select * from jmb_guest_get_order($1,$2)", [late.id, "e".repeat(64)]))
+            .rows.length,
+          0,
+        );
+        assert.equal(
+          (
+            await db.query("select * from jmb_guest_get_order_items($1,$2)", [
+              late.id,
+              "e".repeat(64),
+            ])
+          ).rows.length,
+          0,
+        );
+        await assert.rejects(
+          () => db.query("select jmb_checkout_lock($1,false)", [late.id]),
+          /paid|Restore/,
+        );
       },
     );
   } finally {

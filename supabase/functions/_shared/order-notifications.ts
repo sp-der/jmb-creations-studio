@@ -17,8 +17,13 @@ export async function businessEmail(client: DB): Promise<string> {
   // Reuse deployed configuration only. Never substitute an invented destination.
   const email = Deno.env.get("JMB_NOTIFICATION_EMAIL") || Deno.env.get("SUPPORT_EMAIL");
   if (email) return email;
-  const { data: settings, error } = await client.from("jmb_store_settings").select("notification_email").eq("id", 1).maybeSingle();
-  if (error || !settings?.notification_email) throw new Error("Business notification email is not configured.");
+  const { data: settings, error } = await client
+    .from("jmb_store_settings")
+    .select("notification_email")
+    .eq("id", 1)
+    .maybeSingle();
+  if (error || !settings?.notification_email)
+    throw new Error("Business notification email is not configured.");
   return settings.notification_email;
 }
 async function buildPayload(client: DB, job: Job) {
@@ -76,6 +81,11 @@ async function buildPayload(client: DB, job: Job) {
     text = `${subject}\n\n${message.body}`;
   }
   const notificationEmail = await businessEmail(client);
+  const validEmail = /^[^\s<>@,;]+@[^\s<>@,;]+\.[^\s<>@,;]+$/;
+  if (!validEmail.test(notificationEmail) || !validEmail.test(order.customer_email))
+    throw new Error(
+      "Notification recipient is invalid. Review the stored order and business settings.",
+    );
   return {
     from,
     to: [toAdmin ? notificationEmail : order.customer_email],
@@ -95,6 +105,25 @@ export async function drainNotifications(client: DB, orderId: string | null = nu
   for (const job of (data ?? []) as Job[]) {
     let permanent = false;
     try {
+      const current = await client
+        .from("jmb_orders")
+        .select("deleted_at")
+        .eq("id", job.order_id)
+        .single();
+      if (current.error) throw new Error("Notification order unavailable.");
+      if (current.data.deleted_at) {
+        await client
+          .from("jmb_notification_outbox")
+          .update({
+            state: "needs_review",
+            lease_until: null,
+            last_error: "Order in Trash; notification suppressed.",
+          })
+          .eq("id", job.id)
+          .eq("lease_id", job.lease_id);
+        results.push({ id: job.id, state: "needs_review" });
+        continue;
+      }
       const payload = job.payload || (await buildPayload(client, job));
       const apiKey = Deno.env.get("RESEND_API_KEY");
       if (!apiKey) throw new Error("RESEND_API_KEY is not configured.");

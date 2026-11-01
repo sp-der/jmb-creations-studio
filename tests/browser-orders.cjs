@@ -1,17 +1,20 @@
 // Local browser verification. All external HTTP requests are intercepted; no live mail or payments.
 const server = require("node:child_process").spawn(
   process.execPath,
-  [
-    "node_modules/vite/bin/vite.js",
-    "--host",
-    "127.0.0.1",
-    "--port",
-    "3002",
-    "--mode",
-    "production",
-  ],
+  process.env.JMB_BROWSER_SERVER_ENTRY
+    ? [process.env.JMB_BROWSER_SERVER_ENTRY]
+    : [
+        "node_modules/vite/bin/vite.js",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "3002",
+        "--mode",
+        "production",
+      ],
   {
     cwd: require("node:path").resolve(__dirname, ".."),
+    env: { ...process.env, PORT: "3002", HOST: "127.0.0.1" },
     stdio: [
       "ignore",
       require("node:fs").openSync("/tmp/jmb-browser-server.txt", "w"),
@@ -66,6 +69,7 @@ const line = {
   unit_price: 25,
   line_total: 25,
 };
+let trashed = false;
 let messages = [
   {
     id: "33333333-3333-4333-8333-333333333333",
@@ -99,14 +103,24 @@ const errors = [];
     headless: true,
   });
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
-  await context.route("https://**", async (route) => {
+  await context.route("**/*", async (route) => {
     const url = new URL(route.request().url());
+    if (url.hostname === "127.0.0.1") return route.continue();
     if (!url.hostname.endsWith("supabase.co")) return route.fulfill({ status: 200, body: "" });
     let data = [];
-    const body = route.request().postDataJSON();
+    const body = route.request().method() === "POST" ? route.request().postDataJSON() : {};
     if (url.pathname.endsWith("/jmb_admins")) data = [{ user_id: user }];
     else if (url.pathname.endsWith("/jmb_orders"))
-      data = mode === "account" ? [{ ...paid, customer_user_id: user }] : [paid, pending];
+      data =
+        mode === "account"
+          ? [{ ...paid, customer_user_id: user }]
+          : url.searchParams.get("deleted_at") === "not.is.null"
+            ? trashed
+              ? [{ ...paid, deleted_at: new Date().toISOString() }]
+              : []
+            : trashed
+              ? [pending]
+              : [paid, pending];
     else if (url.pathname.endsWith("/jmb_order_items")) data = [line];
     else if (url.pathname.endsWith("/jmb-guest-order-access"))
       data = { order: body.orderId === pendingId ? pending : paid, items: [line] };
@@ -121,6 +135,14 @@ const errors = [];
         body: JSON.stringify({ error: "Controlled Square outage" }),
       });
     } else if (url.pathname.endsWith("/jmb-order-communications")) {
+      if (body.action === "delete") {
+        trashed = true;
+        data = { order: { ...paid, deleted_at: new Date().toISOString() } };
+      }
+      if (body.action === "restore") {
+        trashed = false;
+        data = { order: { ...paid, deleted_at: null } };
+      }
       if (body.action === "unread") data = { counts: { [id]: 1 }, newOrders: [id] };
       if (body.action === "list") data = { messages };
       if (body.action === "seen") data = { seen: true };
@@ -154,6 +176,7 @@ const errors = [];
   page.on("pageerror", (e) => errors.push(String(e)));
   await page.addInitScript(
     ({ user }) => {
+      localStorage.setItem("jmb-admin-remember", "true");
       localStorage.setItem(
         "jmb-admin-supabase-session",
         JSON.stringify({
@@ -166,7 +189,7 @@ const errors = [];
     { user },
   );
   await page.goto(`http://127.0.0.1:3002/admin?order=${id}`);
-  await page.getByRole("heading", { name: "Order Conversation", exact: true }).waitFor();
+  await page.getByRole("heading", { name: "Order Chat", exact: true }).waitFor();
   await page.getByText("Can I collect this tomorrow?", { exact: true }).waitFor();
   await page.getByText("Guest Checkout", { exact: true }).waitFor();
   assert.ok(await page.getByText(/Payment confirmed Oct/).count());
@@ -180,6 +203,30 @@ const errors = [];
   await page.getByText("Email saved to the delivery queue. Check its status below.").waitFor();
   assert.equal(sentEmail, true);
   await page.screenshot({ path: "/tmp/jmb-admin-desktop.png", fullPage: true });
+  await page.getByRole("button", { name: "Delete Order", exact: true }).click();
+  await page.getByRole("alertdialog").waitFor();
+  await page.getByRole("heading", { name: /Delete Order JMB-1001 for Test Customer/ }).waitFor();
+  assert.equal(trashed, false);
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  assert.equal(trashed, false);
+  await page.getByRole("button", { name: "Delete Order", exact: true }).click();
+  await page
+    .getByRole("alertdialog")
+    .getByRole("button", { name: "Delete Order", exact: true })
+    .click();
+  await page
+    .getByText("Order moved to Trash. Payments and history are preserved.", { exact: true })
+    .waitFor();
+  assert.equal(trashed, true);
+  await page.getByRole("button", { name: "Trash", exact: true }).click();
+  await page.getByRole("button", { name: "Restore Order", exact: true }).waitFor();
+  await page.getByText("Conversation preserved. Restore this order to send messages.").waitFor();
+  assert.equal(await page.getByRole("button", { name: "Send Message", exact: true }).count(), 0);
+  await page.getByRole("button", { name: "Restore Order", exact: true }).click();
+  await page.getByText("Order restored to active orders.", { exact: true }).waitFor();
+  assert.equal(trashed, false);
+  await page.getByRole("button", { name: "Active Orders", exact: true }).click();
+  await page.getByRole("heading", { name: "Order Chat", exact: true }).waitFor();
   await page.getByRole("button", { name: /Customer Inbox/ }).click();
   await page.getByRole("button", { name: "Custom Requests", exact: true }).click();
   await page.getByRole("heading", { name: "Custom Chats", exact: true }).waitFor();
@@ -193,7 +240,7 @@ const errors = [];
   );
   mode = "guest";
   await page.goto(`http://127.0.0.1:3002/guest/order/${id}?token=${"a".repeat(64)}`);
-  await page.getByRole("heading", { name: "Order Conversation", exact: true }).waitFor();
+  await page.getByRole("heading", { name: "Order Chat", exact: true }).waitFor();
   await page.getByPlaceholder("Message JMB…").fill("Thanks!");
   await page.getByRole("button", { name: "Send Message", exact: true }).click();
   await page.getByText("Thanks!", { exact: true }).waitFor();
@@ -223,7 +270,7 @@ const errors = [];
     { user },
   );
   await page.goto(`http://127.0.0.1:3002/orders/${id}`);
-  await page.getByRole("heading", { name: "Order Conversation", exact: true }).waitFor();
+  await page.getByRole("heading", { name: "Order Chat", exact: true }).waitFor();
   mode = "guest";
   await page.evaluate(() => {
     localStorage.removeItem("jmb-customer-supabase-session");
@@ -257,7 +304,7 @@ const errors = [];
   );
   assert.deepEqual(errors, []);
   console.log(
-    "PASS: admin chat/email, inbox custom-history UI, guest/account portals, mobile overflow, Square-only checkout, pickup and interrupted-payment cart recovery (mock APIs).",
+    "PASS: admin chat/email, delete confirmation/cancel, Trash/read-only history, restore, Custom Chats, guest/account portals, mobile layout, Square-only checkout and interrupted-payment cart recovery (mock APIs).",
   );
   await browser.close();
   server.kill();

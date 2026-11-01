@@ -279,6 +279,7 @@ test("Resend outages preserve frozen payload and idempotency key, retries record
     globalThis.fetch = async (input, init = {}) => {
       const url = new URL(typeof input === "string" ? input : input.url);
       if (url.pathname.endsWith("jmb_claim_notifications")) return json([job]);
+      if (url.pathname.endsWith("jmb_orders")) return json({ deleted_at: null });
       if (url.hostname === "api.resend.com") {
         attempts.push({
           key: new Headers(init.headers).get("Idempotency-Key"),
@@ -305,6 +306,51 @@ test("Resend outages preserve frozen payload and idempotency key, retries record
     assert.equal(patches.at(-1).provider_id, "provider-message");
     status = 422;
     assert.equal((await drainNotifications(client))[0].state, "needs_review");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("only authenticated admins delete/restore and deleted conversations are read-only", async () => {
+  try {
+    let called = false;
+    globalThis.fetch = apiMock({
+      onRpc: () => {
+        called = true;
+      },
+    });
+    assert.equal((await handler(request({ action: "delete", orderId }, "owner"))).status, 403);
+    assert.equal(called, false);
+    globalThis.fetch = apiMock({
+      admin: true,
+      onRpc: (path, body) => {
+        if (path.endsWith("jmb_order_trash")) {
+          called = true;
+          assert.equal(body.p_user_id, ownerId);
+          assert.equal(body.p_restore, true);
+        }
+      },
+    });
+    assert.equal((await handler(request({ action: "restore", orderId }, "admin"))).status, 200);
+    assert.equal(called, true);
+    globalThis.fetch = apiMock({
+      onFetch: (url) =>
+        url.pathname.endsWith("/jmb_orders")
+          ? json([{ ...order, deleted_at: new Date().toISOString() }])
+          : null,
+    });
+    assert.equal(
+      (
+        await handler(
+          request(
+            { action: "send", orderId, message: "Blocked", requestId: crypto.randomUUID() },
+            "owner",
+          ),
+        )
+      ).status,
+      410,
+    );
+    assert.equal((await handler(request({ action: "list", orderId }, "owner"))).status, 410);
   } finally {
     globalThis.fetch = originalFetch;
   }

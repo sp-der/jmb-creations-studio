@@ -1,9 +1,24 @@
-import { customerAuthHeaders, getCustomerSession, getValidCustomerSession, getSupabaseAnonKey, getSupabaseRestUrl, getSupabaseUrl } from "@/lib/customer-auth";
+import {
+  customerAuthHeaders,
+  getCustomerSession,
+  getValidCustomerSession,
+  getSupabaseAnonKey,
+  getSupabaseRestUrl,
+  getSupabaseUrl,
+} from "@/lib/customer-auth";
 import { getAdminAuthHeaders } from "@/lib/live-catalog";
 import type { CartItem } from "@/lib/cart";
 
 export type FulfillmentMethod = "Shipping" | "Local Pickup";
-export type OrderStatus = "Pending Checkout" | "Order Received" | "Payment Confirmed" | "In Production" | "Ready for Pickup" | "Shipped" | "Completed" | "Cancelled";
+export type OrderStatus =
+  | "Pending Checkout"
+  | "Order Received"
+  | "Payment Confirmed"
+  | "In Production"
+  | "Ready for Pickup"
+  | "Shipped"
+  | "Completed"
+  | "Cancelled";
 
 export type JmbOrder = {
   id: string;
@@ -42,6 +57,8 @@ export type JmbOrder = {
   admin_seen_at: string | null;
   created_at: string;
   updated_at: string;
+  deleted_at: string | null;
+  deleted_by: string | null;
 };
 
 export type JmbOrderItem = {
@@ -91,7 +108,12 @@ async function functionHeaders(includeCustomer = false) {
 
 async function parseError(response: Response) {
   const text = await response.text();
-  try { const data = JSON.parse(text); return data.error || data.message || text; } catch { return text || `${response.status} ${response.statusText}`; }
+  try {
+    const data = JSON.parse(text);
+    return data.error || data.message || text;
+  } catch {
+    return text || `${response.status} ${response.statusText}`;
+  }
 }
 
 export function orderCode(order: Pick<JmbOrder, "order_number">) {
@@ -102,8 +124,16 @@ export function buildParcelFromCart(items: CartItem[]) {
   const weight = items.reduce((sum, item) => sum + (Number(item.weightOz) || 8) * item.quantity, 0);
   const length = Math.max(8, ...items.map((item) => Number(item.lengthIn) || 8));
   const width = Math.max(6, ...items.map((item) => Number(item.widthIn) || 6));
-  const height = Math.max(4, items.reduce((sum, item) => sum + (Number(item.heightIn) || 4) * item.quantity, 0));
-  return { weightOz: Math.round(weight * 100) / 100, lengthIn: length, widthIn: width, heightIn: height };
+  const height = Math.max(
+    4,
+    items.reduce((sum, item) => sum + (Number(item.heightIn) || 4) * item.quantity, 0),
+  );
+  return {
+    weightOz: Math.round(weight * 100) / 100,
+    lengthIn: length,
+    widthIn: width,
+    heightIn: height,
+  };
 }
 
 export async function fetchShippingRates(address: ShippingAddress, items: CartItem[]) {
@@ -115,7 +145,7 @@ export async function fetchShippingRates(address: ShippingAddress, items: CartIt
     body: JSON.stringify({ address, parcel: buildParcelFromCart(items) }),
   });
   if (!response.ok) throw new Error(await parseError(response));
-  const data = await response.json() as { rates: ShippingRate[] };
+  const data = (await response.json()) as { rates: ShippingRate[] };
   return data.rates;
 }
 
@@ -131,29 +161,52 @@ export async function createOrder(input: {
 }) {
   const url = getSupabaseUrl();
   if (!url) throw new Error("Supabase is not configured.");
-  const payload = { ...input, items: input.items.map(item => ({ catalogItemId: item.productId, quantity: item.quantity })) };
+  const payload = {
+    ...input,
+    items: input.items.map((item) => ({ catalogItemId: item.productId, quantity: item.quantity })),
+  };
   const fingerprint = JSON.stringify(payload);
   const saved = sessionStorage.getItem("jmb-checkout-attempt");
   let attempt: { fingerprint: string; checkoutKey: string; guestToken: string } | null = null;
-  try { attempt = saved ? JSON.parse(saved) : null; } catch { /* Start a fresh attempt. */ }
+  try {
+    attempt = saved ? JSON.parse(saved) : null;
+  } catch {
+    /* Start a fresh attempt. */
+  }
   if (attempt?.fingerprint !== fingerprint) {
-    attempt = { fingerprint, checkoutKey: crypto.randomUUID(), guestToken: Array.from(crypto.getRandomValues(new Uint8Array(32)), b => b.toString(16).padStart(2, "0")).join("") };
+    attempt = {
+      fingerprint,
+      checkoutKey: crypto.randomUUID(),
+      guestToken: Array.from(crypto.getRandomValues(new Uint8Array(32)), (b) =>
+        b.toString(16).padStart(2, "0"),
+      ).join(""),
+    };
     sessionStorage.setItem("jmb-checkout-attempt", JSON.stringify(attempt));
   }
   const response = await fetch(`${url}/functions/v1/jmb-create-order`, {
     method: "POST",
     headers: await functionHeaders(Boolean(getCustomerSession())),
     body: JSON.stringify({
-      ...payload, checkoutKey: attempt.checkoutKey, guestToken: attempt.guestToken,
+      ...payload,
+      checkoutKey: attempt.checkoutKey,
+      guestToken: attempt.guestToken,
     }),
   });
   if (!response.ok) throw new Error(await parseError(response));
-  return await response.json() as { order: JmbOrder; guestToken?: string; accessUrl?: string; emailSent?: boolean };
+  return (await response.json()) as {
+    order: JmbOrder;
+    guestToken?: string;
+    accessUrl?: string;
+    emailSent?: boolean;
+  };
 }
 
 export async function fetchCustomerOrder(orderId: string) {
   const base = getSupabaseRestUrl();
-  const response = await fetch(`${base}/jmb_orders?id=eq.${encodeURIComponent(orderId)}&select=*&limit=1`, { headers: await customerAuthHeaders() });
+  const response = await fetch(
+    `${base}/jmb_orders?id=eq.${encodeURIComponent(orderId)}&select=*&limit=1`,
+    { headers: await customerAuthHeaders() },
+  );
   if (!response.ok) throw new Error(await parseError(response));
   const rows = (await response.json()) as JmbOrder[];
   return rows[0] ?? null;
@@ -161,33 +214,53 @@ export async function fetchCustomerOrder(orderId: string) {
 
 export async function fetchCustomerOrders() {
   const base = getSupabaseRestUrl();
-  const response = await fetch(`${base}/jmb_orders?select=*&order=created_at.desc`, { headers: await customerAuthHeaders() });
+  const response = await fetch(
+    `${base}/jmb_orders?deleted_at=is.null&select=*&order=created_at.desc`,
+    { headers: await customerAuthHeaders() },
+  );
   if (!response.ok) throw new Error(await parseError(response));
   return (await response.json()) as JmbOrder[];
 }
 
 export async function fetchCustomerOrderItems(orderId: string) {
   const base = getSupabaseRestUrl();
-  const response = await fetch(`${base}/jmb_order_items?order_id=eq.${encodeURIComponent(orderId)}&select=*&order=created_at.asc`, { headers: await customerAuthHeaders() });
+  const response = await fetch(
+    `${base}/jmb_order_items?order_id=eq.${encodeURIComponent(orderId)}&select=*&order=created_at.asc`,
+    { headers: await customerAuthHeaders() },
+  );
   if (!response.ok) throw new Error(await parseError(response));
   return (await response.json()) as JmbOrderItem[];
 }
 
-export async function fetchAdminOrders() {
+export async function fetchAdminOrders(trash = false) {
   const base = getSupabaseRestUrl();
-  const response = await fetch(`${base}/jmb_orders?select=*&order=created_at.desc`, { headers: getAdminAuthHeaders() });
+  const response = await fetch(
+    `${base}/jmb_orders?deleted_at=${trash ? "not.is.null" : "is.null"}&select=*&order=created_at.desc`,
+    { headers: getAdminAuthHeaders() },
+  );
   if (!response.ok) throw new Error(await parseError(response));
   return (await response.json()) as JmbOrder[];
 }
 
 export async function fetchAdminOrderItems(orderId: string) {
   const base = getSupabaseRestUrl();
-  const response = await fetch(`${base}/jmb_order_items?order_id=eq.${encodeURIComponent(orderId)}&select=*&order=created_at.asc`, { headers: getAdminAuthHeaders() });
+  const response = await fetch(
+    `${base}/jmb_order_items?order_id=eq.${encodeURIComponent(orderId)}&select=*&order=created_at.asc`,
+    { headers: getAdminAuthHeaders() },
+  );
   if (!response.ok) throw new Error(await parseError(response));
   return (await response.json()) as JmbOrderItem[];
 }
 
-export async function updateAdminOrder(orderId: string, patch: Partial<Pick<JmbOrder, "status" | "payment_status" | "tracking_code" | "tracking_carrier" | "tracking_status">>) {
+export async function updateAdminOrder(
+  orderId: string,
+  patch: Partial<
+    Pick<
+      JmbOrder,
+      "status" | "payment_status" | "tracking_code" | "tracking_carrier" | "tracking_status"
+    >
+  >,
+) {
   const base = getSupabaseRestUrl();
   const response = await fetch(`${base}/jmb_orders?id=eq.${encodeURIComponent(orderId)}`, {
     method: "PATCH",
@@ -211,7 +284,12 @@ export async function buyOrderLabel(orderId: string) {
     body: JSON.stringify({ orderId }),
   });
   if (!response.ok) throw new Error(await parseError(response));
-  return await response.json() as { order: JmbOrder; labelUrl: string; trackingCode: string; emailSent?: boolean };
+  return (await response.json()) as {
+    order: JmbOrder;
+    labelUrl: string;
+    trackingCode: string;
+    emailSent?: boolean;
+  };
 }
 
 async function guestOrderAccess(orderId: string, token: string) {
@@ -225,7 +303,7 @@ async function guestOrderAccess(orderId: string, token: string) {
     body: JSON.stringify({ orderId, token }),
   });
   if (!response.ok) throw new Error(await parseError(response));
-  return await response.json() as { order: JmbOrder; items: JmbOrderItem[] };
+  return (await response.json()) as { order: JmbOrder; items: JmbOrderItem[] };
 }
 
 export async function fetchGuestOrder(orderId: string, token: string) {
@@ -248,11 +326,15 @@ export async function reviewManualPayment(orderId: string, approved: boolean) {
     body: JSON.stringify({ orderId, approved }),
   });
   if (!response.ok) throw new Error(await parseError(response));
-  return await response.json() as { order: JmbOrder; emailSent?: boolean };
+  return (await response.json()) as { order: JmbOrder; emailSent?: boolean };
 }
 
 export async function cancelPendingCheckout(orderId: string) {
-  const response = await fetch(`${getSupabaseUrl()}/functions/v1/jmb-cancel-checkout`, { method: "POST", headers: getAdminAuthHeaders(), body: JSON.stringify({ orderId }) });
+  const response = await fetch(`${getSupabaseUrl()}/functions/v1/jmb-cancel-checkout`, {
+    method: "POST",
+    headers: getAdminAuthHeaders(),
+    body: JSON.stringify({ orderId }),
+  });
   if (!response.ok) throw new Error(await parseError(response));
-  return await response.json() as { order: JmbOrder };
+  return (await response.json()) as { order: JmbOrder };
 }

@@ -107,12 +107,14 @@ export async function handler(req: Request): Promise<Response> {
       const [messages, orders] = await Promise.all([
         client
           .from("jmb_order_messages")
-          .select("order_id")
+          .select("order_id,jmb_orders!inner(deleted_at)")
+          .is("jmb_orders.deleted_at", null)
           .eq("sender", "customer")
           .is("admin_seen_at", null),
         client
           .from("jmb_orders")
           .select("id")
+          .is("deleted_at", null)
           .eq("payment_status", "Paid")
           .is("admin_seen_at", null)
           .not("payment_confirmed_at", "is", null),
@@ -125,10 +127,36 @@ export async function handler(req: Request): Promise<Response> {
     }
     if (typeof body.orderId !== "string" || !UUID.test(body.orderId))
       return json({ error: "Invalid order." }, 400);
-    const access = await orderAccess(req, body.orderId, body.token);
+    const access = await orderAccess(req, body.orderId, body.token, true, true);
     if (!access) return json({ error: "Access denied." }, 403);
     const { order, user, admin } = access;
     const actor = admin ? "admin" : "customer";
+    if (["delete", "restore"].includes(body.action)) {
+      if (!admin || !user) return json({ error: "Admin access required." }, 403);
+      const result = await client.rpc("jmb_order_trash", {
+        p_order_id: order.id,
+        p_user_id: user.id,
+        p_restore: body.action === "restore",
+      });
+      if (result.error)
+        return json(
+          {
+            error: result.error.message.includes("busy")
+              ? result.error.message
+              : "Order could not be moved. Please retry.",
+          },
+          409,
+        );
+      return json({ order: result.data });
+    }
+    if (order.deleted_at && !(admin && ["list", "notifications"].includes(body.action)))
+      return json(
+        {
+          error: "This order has been removed from active orders. Contact JMB if you need help.",
+          archived: true,
+        },
+        410,
+      );
     if (["email", "notifications"].includes(body.action) && !admin)
       return json({ error: "Admin access required." }, 403);
     if (body.action === "notifications") {

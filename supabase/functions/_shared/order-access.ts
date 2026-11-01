@@ -5,6 +5,7 @@ export async function orderAccess(
   orderId: string,
   token?: string,
   allowAdmin = true,
+  allowDeleted = false,
 ) {
   if (!UUID.test(orderId)) return null;
   const client = adminClient();
@@ -42,6 +43,11 @@ export async function orderAccess(
     guest = result.data === true;
   }
   if (!order || (!admin && !guest && !ownsOrder(user, order))) return null;
+  if (order.deleted_at && !allowDeleted)
+    throw Object.assign(
+      new Error("This order has been removed from active orders. Contact JMB if you need help."),
+      { status: 410 },
+    );
   return { client, user, order, admin, guest };
 }
 export function safeOrder(order: Record<string, unknown>) {

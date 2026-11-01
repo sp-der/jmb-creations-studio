@@ -11,22 +11,40 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return json({ error: "Method not allowed." }, 405);
   try {
-    const input = await req.json() as Input;
+    const input = (await req.json()) as Input;
     const orderId = String(input.orderId || "").trim();
     const token = String(input.token || "").trim();
     if (!orderId || !token) return json({ error: "Private order ID and token are required." }, 400);
 
     const client = adminClient();
-    const { data: order, error: orderError } = await client.from("jmb_orders").select("*").eq("id", orderId).maybeSingle();
+    const { data: order, error: orderError } = await client
+      .from("jmb_orders")
+      .select("*")
+      .eq("id", orderId)
+      .maybeSingle();
     if (orderError) throw new Error(orderError.message);
     if (!order) return json({ error: "Private order not found." }, 404);
-    if (!order.guest_token_hash) return json({ error: "This order is attached to a customer account." }, 403);
+    if (!order.guest_token_hash)
+      return json({ error: "This order is attached to a customer account." }, 403);
 
-    const { data: valid, error: tokenError } = await client.rpc("jmb_valid_guest_order", { p_order_id: orderId, p_token: token });
+    const { data: valid, error: tokenError } = await client.rpc("jmb_valid_guest_order", {
+      p_order_id: orderId,
+      p_token: token,
+    });
     if (tokenError) throw new Error("Guest authorization unavailable.");
     if (valid !== true) return json({ error: "This private order link is invalid." }, 403);
 
-    const { data: items, error: itemsError } = await client.from("jmb_order_items").select("*").eq("order_id", orderId).order("created_at", { ascending: true });
+    if (order.deleted_at)
+      return json({
+        order: { id: order.id, order_number: order.order_number, deleted_at: order.deleted_at },
+        items: [],
+      });
+
+    const { data: items, error: itemsError } = await client
+      .from("jmb_order_items")
+      .select("*")
+      .eq("order_id", orderId)
+      .order("created_at", { ascending: true });
     if (itemsError) throw new Error(itemsError.message);
     return json({ order: safeOrder(order), items: items ?? [] });
   } catch (error) {

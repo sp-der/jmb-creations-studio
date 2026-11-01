@@ -8,10 +8,12 @@ export function OrderConversation({
   token = "",
   admin = false,
   onRead,
+  readOnly = false,
 }: {
   orderId: string;
   token?: string;
   admin?: boolean;
+  readOnly?: boolean;
   onRead?: (() => void) | undefined;
 }) {
   const [messages, setMessages] = useState<OrderMessage[]>([]);
@@ -56,11 +58,12 @@ export function OrderConversation({
             !(admin ? m.admin_seen_at : m.customer_seen_at),
         );
         // Only acknowledge messages actually fetched and displayed.
-        await orderCommunication(
-          "seen",
-          { orderId, token, messageIds: unread.map((m) => m.id) },
-          admin,
-        );
+        if (!readOnly)
+          await orderCommunication(
+            "seen",
+            { orderId, token, messageIds: unread.map((m) => m.id) },
+            admin,
+          );
         if (active) readCallback.current?.();
       } catch (err) {
         if (active) setError(err instanceof Error ? err.message : "Could not load conversation.");
@@ -81,7 +84,7 @@ export function OrderConversation({
       window.clearInterval(interval);
       document.removeEventListener("visibilitychange", visible);
     };
-  }, [orderId, token, admin]);
+  }, [orderId, token, admin, readOnly]);
   useEffect(() => {
     if (list.current) list.current.scrollTop = list.current.scrollHeight;
   }, [messages.length]);
@@ -115,7 +118,7 @@ export function OrderConversation({
       <header className="flex items-center gap-3 border-b border-border bg-secondary/30 p-5">
         <MessageCircleMore className="text-primary" />
         <div>
-          <h3 className="font-bold">Order Conversation</h3>
+          <h3 className="font-bold">Order Chat</h3>
           <p className="text-xs text-muted-foreground">
             Messages stay with this order. Replies also send an email notification.
           </p>
@@ -153,26 +156,32 @@ export function OrderConversation({
           {error}
         </p>
       )}
-      <form onSubmit={(e) => void send(e)} className="space-y-3 border-t border-border p-4">
-        <label className="sr-only" htmlFor={`message-${orderId}`}>
-          Message about this order
-        </label>
-        <Textarea
-          id={`message-${orderId}`}
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          maxLength={4000}
-          disabled={busy}
-          placeholder={admin ? "Reply to customer…" : "Message JMB…"}
-          rows={3}
-        />
-        <div className="flex items-center justify-between gap-3">
-          <span className="text-xs text-muted-foreground">{draft.length}/4,000</span>
-          <Button type="submit" variant="hero" disabled={busy || loading || !draft.trim()}>
-            {busy ? <Loader2 className="animate-spin" /> : <Send />} Send Message
-          </Button>
-        </div>
-      </form>
+      {readOnly ? (
+        <p className="border-t border-border p-4 text-sm text-muted-foreground">
+          Conversation preserved. Restore this order to send messages.
+        </p>
+      ) : (
+        <form onSubmit={(e) => void send(e)} className="space-y-3 border-t border-border p-4">
+          <label className="sr-only" htmlFor={`message-${orderId}`}>
+            Message about this order
+          </label>
+          <Textarea
+            id={`message-${orderId}`}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            maxLength={4000}
+            disabled={busy}
+            placeholder={admin ? "Reply to customer…" : "Message JMB…"}
+            rows={3}
+          />
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-xs text-muted-foreground">{draft.length}/4,000</span>
+            <Button type="submit" variant="hero" disabled={busy || loading || !draft.trim()}>
+              {busy ? <Loader2 className="animate-spin" /> : <Send />} Send Message
+            </Button>
+          </div>
+        </form>
+      )}
     </section>
   );
 }

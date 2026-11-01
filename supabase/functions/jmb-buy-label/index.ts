@@ -1,4 +1,13 @@
-import { adminClient, corsHeaders, emailShell, getShipFromAddress, json, requireAdmin, sendEmail, shippoHeaders } from "../_shared/jmb.ts";
+import {
+  adminClient,
+  corsHeaders,
+  emailShell,
+  getShipFromAddress,
+  json,
+  requireAdmin,
+  sendEmail,
+  shippoHeaders,
+} from "../_shared/jmb.ts";
 
 function shippoMessage(messages: any[]) {
   return (messages ?? [])
@@ -51,17 +60,39 @@ async function buildOrderParcel(client: ReturnType<typeof adminClient>, orderId:
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  let operationLease = "";
+  let operationOrder = "";
+  const operationClient = adminClient();
   try {
     await requireAdmin(req);
-    const { orderId } = await req.json() as { orderId?: string };
+    const { orderId } = (await req.json()) as { orderId?: string };
     if (!orderId) return json({ error: "orderId is required." }, 400);
 
     const client = adminClient();
-    const { data: order, error } = await client.from("jmb_orders").select("*").eq("id", orderId).single();
+    const { data: order, error } = await client
+      .from("jmb_orders")
+      .select("*")
+      .eq("id", orderId)
+      .single();
     if (error || !order) return json({ error: "Order not found." }, 404);
-    if (order.fulfillment !== "Shipping") return json({ error: "This order is not a shipping order." }, 400);
-    if (!order.easypost_shipment_id || !order.easypost_rate_id) return json({ error: "This order does not have a selected carrier rate." }, 400);
-    if (order.label_url && order.tracking_code) return json({ order, labelUrl: order.label_url, trackingCode: order.tracking_code });
+    if (order.deleted_at)
+      return json({ error: "Restore this order from Trash before continuing." }, 409);
+    if (order.payment_status !== "Paid")
+      return json({ error: "Confirm payment before purchasing a label." }, 409);
+    if (order.fulfillment !== "Shipping")
+      return json({ error: "This order is not a shipping order." }, 400);
+    if (!order.easypost_shipment_id || !order.easypost_rate_id)
+      return json({ error: "This order does not have a selected carrier rate." }, 400);
+    if (order.label_url && order.tracking_code)
+      return json({ order, labelUrl: order.label_url, trackingCode: order.tracking_code });
+
+    const operation = await operationClient.rpc("jmb_order_operation_lock", {
+      p_order_id: orderId,
+    });
+    if (operation.error)
+      return json({ error: "Order is busy or in Trash. Refresh and retry." }, 409);
+    operationLease = operation.data;
+    operationOrder = orderId;
 
     let preferredProvider: string | null = null;
     let preferredServiceToken: string | null = null;
@@ -70,12 +101,18 @@ Deno.serve(async (req) => {
     // Newly quoted Shippo IDs are 32-character object IDs. Older EasyPost orders keep
     // their legacy IDs and will simply receive the cheapest current Shippo rate.
     if (/^[0-9a-f]{32}$/i.test(String(order.easypost_shipment_id))) {
-      const quotedResponse = await fetch(`https://api.goshippo.com/shipments/${encodeURIComponent(order.easypost_shipment_id)}`, {
-        headers: shippoHeaders(),
-      });
+      const quotedResponse = await fetch(
+        `https://api.goshippo.com/shipments/${encodeURIComponent(order.easypost_shipment_id)}`,
+        {
+          headers: shippoHeaders(),
+          signal: AbortSignal.timeout(15000),
+        },
+      );
       if (quotedResponse.ok) {
         const quotedShipment = await quotedResponse.json();
-        const quotedRate = (quotedShipment.rates ?? []).find((rate: any) => rate.object_id === order.easypost_rate_id);
+        const quotedRate = (quotedShipment.rates ?? []).find(
+          (rate: any) => rate.object_id === order.easypost_rate_id,
+        );
         if (quotedRate) {
           preferredProvider = quotedRate.provider || null;
           preferredServiceToken = quotedRate.servicelevel?.token || null;
@@ -89,6 +126,7 @@ Deno.serve(async (req) => {
     const freshResponse = await fetch("https://api.goshippo.com/shipments/", {
       method: "POST",
       headers: shippoHeaders(),
+      signal: AbortSignal.timeout(15000),
       body: JSON.stringify({
         address_to: {
           name: `${order.first_name} ${order.last_name}`,
@@ -105,37 +143,58 @@ Deno.serve(async (req) => {
         async: false,
       }),
     });
-    if (!freshResponse.ok) return json({ error: `Shipping provider error: ${await freshResponse.text()}` }, 502);
+    if (!freshResponse.ok)
+      return json({ error: `Shipping provider error: ${await freshResponse.text()}` }, 502);
 
     const freshShipment = await freshResponse.json();
-    const freshRates = (freshShipment.rates ?? []).filter((rate: any) => Number.isFinite(Number(rate.amount)));
+    const freshRates = (freshShipment.rates ?? []).filter((rate: any) =>
+      Number.isFinite(Number(rate.amount)),
+    );
     if (!freshRates.length) {
       const detail = shippoMessage(freshShipment.messages);
-      return json({ error: detail ? `Shippo could not return a current label rate: ${detail}` : "Shippo did not return a current label rate." }, 502);
+      return json(
+        {
+          error: detail
+            ? `Shippo could not return a current label rate: ${detail}`
+            : "Shippo did not return a current label rate.",
+        },
+        502,
+      );
     }
 
     let selectedRate = preferredServiceToken
-      ? freshRates.find((rate: any) => rate.provider === preferredProvider && rate.servicelevel?.token === preferredServiceToken)
+      ? freshRates.find(
+          (rate: any) =>
+            rate.provider === preferredProvider &&
+            rate.servicelevel?.token === preferredServiceToken,
+        )
       : null;
 
     if (!selectedRate && preferredServiceName) {
-      selectedRate = freshRates.find((rate: any) => rate.provider === preferredProvider && rate.servicelevel?.name === preferredServiceName);
+      selectedRate = freshRates.find(
+        (rate: any) =>
+          rate.provider === preferredProvider && rate.servicelevel?.name === preferredServiceName,
+      );
     }
 
     if (!selectedRate && preferredProvider) {
-      selectedRate = freshRates
-        .filter((rate: any) => rate.provider === preferredProvider)
-        .sort((a: any, b: any) => Number(a.amount) - Number(b.amount))[0] ?? null;
+      selectedRate =
+        freshRates
+          .filter((rate: any) => rate.provider === preferredProvider)
+          .sort((a: any, b: any) => Number(a.amount) - Number(b.amount))[0] ?? null;
     }
 
     if (!selectedRate) {
-      selectedRate = [...freshRates].sort((a: any, b: any) => Number(a.amount) - Number(b.amount))[0];
+      selectedRate = [...freshRates].sort(
+        (a: any, b: any) => Number(a.amount) - Number(b.amount),
+      )[0];
     }
 
     const code = `JMB-${String(order.order_number).padStart(4, "0")}`;
     const response = await fetch("https://api.goshippo.com/transactions", {
       method: "POST",
       headers: shippoHeaders(),
+      signal: AbortSignal.timeout(15000),
       body: JSON.stringify({
         rate: selectedRate.object_id,
         async: false,
@@ -143,7 +202,8 @@ Deno.serve(async (req) => {
         metadata: code,
       }),
     });
-    if (!response.ok) return json({ error: `Shipping provider error: ${await response.text()}` }, 502);
+    if (!response.ok)
+      return json({ error: `Shipping provider error: ${await response.text()}` }, 502);
 
     const transaction = await response.json();
     const labelUrl = transaction.label_url || null;
@@ -152,7 +212,14 @@ Deno.serve(async (req) => {
     const trackingStatus = transaction.tracking_status || "PRE_TRANSIT";
     if (transaction.status !== "SUCCESS" || !labelUrl || !trackingCode) {
       const detail = shippoMessage(transaction.messages);
-      return json({ error: detail ? `Shippo could not purchase the label: ${detail}` : "Shippo did not return a completed label and tracking number." }, 502);
+      return json(
+        {
+          error: detail
+            ? `Shippo could not purchase the label: ${detail}`
+            : "Shippo did not return a completed label and tracking number.",
+        },
+        502,
+      );
     }
 
     const { data: updated, error: updateError } = await client
@@ -167,14 +234,18 @@ Deno.serve(async (req) => {
       .eq("id", orderId)
       .select("*")
       .single();
-    if (updateError || !updated) throw new Error(updateError?.message || "Could not save label details.");
+    if (updateError || !updated)
+      throw new Error(updateError?.message || "Could not save label details.");
 
     let emailSent = true;
     try {
       await sendEmail({
         to: updated.customer_email,
         subject: `Your JMB order has shipped — ${code}`,
-        html: emailShell("Your order has shipped!", `<p>Hi ${updated.first_name},</p><p>Your shipping label for <strong>${code}</strong> has been created and your tracking information is now available.</p><div style="padding:18px;border-radius:16px;background:#faf2f7"><strong>${carrier || "Carrier"}</strong><div style="margin-top:6px;font-size:20px;font-weight:bold">${trackingCode}</div></div><p style="margin-top:20px">Carrier tracking will update as the package enters the mail stream.</p>`),
+        html: emailShell(
+          "Your order has shipped!",
+          `<p>Hi ${updated.first_name},</p><p>Your shipping label for <strong>${code}</strong> has been created and your tracking information is now available.</p><div style="padding:18px;border-radius:16px;background:#faf2f7"><strong>${carrier || "Carrier"}</strong><div style="margin-top:6px;font-size:20px;font-weight:bold">${trackingCode}</div></div><p style="margin-top:20px">Carrier tracking will update as the package enters the mail stream.</p>`,
+        ),
       });
     } catch (emailError) {
       emailSent = false;
@@ -186,5 +257,12 @@ Deno.serve(async (req) => {
     const message = error instanceof Error ? error.message : String(error);
     const status = /authentication required|not authorized/i.test(message) ? 401 : 500;
     return json({ error: message }, status);
+  } finally {
+    if (operationLease)
+      await operationClient
+        .from("jmb_orders")
+        .update({ checkout_lease_until: null })
+        .eq("id", operationOrder)
+        .eq("checkout_lease_id", operationLease);
   }
 });
