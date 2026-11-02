@@ -83,6 +83,14 @@ order routes and the payment route; the migration and shared Edge access/outbox
 helpers; affected order/payment/shipping handlers; `tests/order-*.test.mjs`,
 `tests/browser-orders.cjs`, and `supabase/tests/order_trash.sql`.
 
+## Cloudflare dependency installation
+
+Cloudflare selects Bun because this repository contains `bun.lock`, and runs
+`bun install --frozen-lockfile`. Keep that lockfile synchronized when adding
+packages through npm. The failed November 2 build stopped during dependency
+installation because PGlite and Supabase's test client were absent from `bun.lock`.
+The corrected lockfile adds those pinned packages without upgrading existing entries.
+
 ## Re-run checks
 
 ```sh
