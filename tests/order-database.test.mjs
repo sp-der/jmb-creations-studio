@@ -59,7 +59,7 @@ test("checkout, payment, conversations, outbox, guest tokens and RLS", async (t)
       .replace("create extension if not exists pg_net with schema extensions;", "");
     await db.exec(migration);
     await db.exec(
-      await file("supabase/migrations/20261101221938_order_trash_and_chat_visibility.sql"),
+      await file("supabase/migrations/20261101223306_order_trash_and_chat_visibility.sql"),
     );
     await db.exec(
       "grant all on all tables in schema public to service_role; grant usage,select on all sequences in schema public to service_role;",

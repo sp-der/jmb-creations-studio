@@ -43,7 +43,7 @@ Email Customer delivery panel. Historical messages are never automatically queue
 
 ## Deployment and verification — November 1, 2026
 
-- Applied `20261101221938_order_trash_and_chat_visibility.sql` to JMB2C.
+- Applied `20261101223306_order_trash_and_chat_visibility.sql` to JMB2C.
 - Deployed communications, guest access, Square checkout, buy-label, manual-review,
   manual-submission, and both Square webhook functions.
 - 23 Node/PostgreSQL/Edge tests passed, including authorization, token isolation,
@@ -67,10 +67,15 @@ Email Customer delivery panel. Historical messages are never automatically queue
   Full-repository lint also has existing failures (1,793 errors on baseline;
   1,641 before the final formatting pass). Existing explicit-any shipping types
   were left unchanged.
-- No matching JMB project is present in the connected Vercel account. The repository
-  is connected to Lovable. The existing Lovable project page reports no access to
-  this session, so publishing and authenticated production UI verification remain
-  blocked until an authorized publisher releases the updated main branch.
+- GitHub source is published through the Cloudflare Workers integration to the
+  existing `jmb-creations-studio` Worker. GitHub Pages is disabled and no GitHub
+  Actions workflow is configured. The chat/delete commit's Cloudflare check failed.
+  Added explicit Wrangler configuration so Nitro no longer derives the incorrect
+  `sp-der-jmb-creations-studio` Worker name from the repository URL. Release status
+  must be verified through the Cloudflare check and the public site after pushing.
+- Aligned the Trash migration filename with its actual recorded production version
+  (`20261101223306`). This repairs repository/database migration history without
+  rerunning or modifying the production schema.
 
 Relevant files: `src/components/admin/OrderManager.tsx`,
 `src/components/orders/OrderConversation.tsx`, `src/lib/orders.ts`, both customer
