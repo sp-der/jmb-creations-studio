@@ -36,7 +36,7 @@ export async function orderCommunication<T>(
         ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
         "Content-Type": "application/json",
       };
-  const response = await fetch(`${url}/functions/v1/jmb-order-communications`, {
+  const response = await fetch(`${url}/functions/v1/${action === "purge" ? "jmb-order-purge" : "jmb-order-communications"}`, {
     method: "POST",
     headers: { ...headers, apikey: anon },
     body: JSON.stringify({ ...input, action }),
