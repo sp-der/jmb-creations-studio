@@ -55,6 +55,8 @@ export function OrderManager({ initialOrderId }: { initialOrderId?: string | nul
   const [trashView, setTrashView] = useState(false);
   const [trashBusy, setTrashBusy] = useState(false);
   const [confirmId, setConfirmId] = useState<string | null>(null);
+  const [purgeId, setPurgeId] = useState<string | null>(null);
+  const [purgeConfirmation, setPurgeConfirmation] = useState("");
   const [orders, setOrders] = useState<JmbOrder[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [items, setItems] = useState<JmbOrderItem[]>([]);
@@ -147,6 +149,35 @@ export function OrderManager({ initialOrderId }: { initialOrderId?: string | nul
     }
   }
 
+  async function permanentlyDeleteOrder(orderId: string, orderNumber: number) {
+    if (trashBusy) return;
+    setTrashBusy(true);
+    try {
+      await orderCommunication<{ deleted: boolean }>(
+        "purge",
+        { orderId, orderNumber },
+        true,
+      );
+      setPurgeId(null);
+      setPurgeConfirmation("");
+      setOrders((current) => current.filter((order) => order.id !== orderId));
+      setSelectedId(null);
+      setItems([]);
+      setCounts((current) => {
+        const next = { ...current };
+        delete next[orderId];
+        return next;
+      });
+      setNewOrders((current) => current.filter((id) => id !== orderId));
+      toast.success("Order permanently deleted from JMB.");
+      await refresh();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not permanently delete order.");
+    } finally {
+      setTrashBusy(false);
+    }
+  }
+
   async function setStatus(status: OrderStatus) {
     if (!selected) return;
     try {
@@ -233,6 +264,60 @@ export function OrderManager({ initialOrderId }: { initialOrderId?: string | nul
               onClick={() => confirmId && void moveOrder(confirmId, false)}
             >
               {trashBusy ? <Loader2 className="animate-spin" /> : <Trash2 />} Delete Order
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <AlertDialog
+        open={Boolean(purgeId)}
+        onOpenChange={(open) => {
+          if (!open && !trashBusy) {
+            setPurgeId(null);
+            setPurgeConfirmation("");
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Permanently delete this order?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This cannot be undone. The order, its items, messages, and website notification
+              history will be removed from JMB. External payment and shipping provider records
+              are not cancelled or refunded. Type the order number to confirm.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <p className="text-sm font-bold">
+            {orders.find((order) => order.id === purgeId)
+              ? orderCode(orders.find((order) => order.id === purgeId)!)
+              : "Order"}
+          </p>
+          <input
+            aria-label="Confirm order number"
+            className="h-11 w-full rounded-xl border border-input bg-background px-3"
+            placeholder="Enter the order number"
+            value={purgeConfirmation}
+            onChange={(event) => setPurgeConfirmation(event.target.value)}
+          />
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={trashBusy}>Cancel</AlertDialogCancel>
+            <Button
+              variant="destructive"
+              disabled={
+                trashBusy ||
+                !orders.some(
+                  (order) =>
+                    order.id === purgeId &&
+                    order.deleted_at &&
+                    purgeConfirmation.trim() === String(order.order_number),
+                )
+              }
+              onClick={() => {
+                const order = orders.find((item) => item.id === purgeId);
+                if (order) void permanentlyDeleteOrder(order.id, order.order_number);
+              }}
+            >
+              {trashBusy ? <Loader2 className="animate-spin" /> : <Trash2 />}
+              Permanently Delete
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -457,13 +542,24 @@ export function OrderManager({ initialOrderId }: { initialOrderId?: string | nul
                       Deleted {orderDate(selected.deleted_at)}. Payments, items, and chat history
                       are preserved. No refund was issued.
                     </p>
-                    <Button
-                      className="mt-3"
-                      disabled={trashBusy}
-                      onClick={() => void moveOrder(selected.id, true)}
-                    >
-                      <RotateCcw /> Restore Order
-                    </Button>
+                    <div className="mt-3 flex flex-wrap gap-3">
+                      <Button
+                        disabled={trashBusy}
+                        onClick={() => void moveOrder(selected.id, true)}
+                      >
+                        <RotateCcw /> Restore Order
+                      </Button>
+                      <Button
+                        variant="destructive"
+                        disabled={trashBusy}
+                        onClick={() => {
+                          setPurgeConfirmation("");
+                          setPurgeId(selected.id);
+                        }}
+                      >
+                        <Trash2 /> Permanently Delete
+                      </Button>
+                    </div>
                   </div>
                 ) : (
                   <div className="flex flex-wrap items-center justify-between gap-3">
